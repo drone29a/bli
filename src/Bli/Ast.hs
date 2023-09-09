@@ -2,6 +2,19 @@ module Bli.Ast where
 
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HMap
+import Data.Either.Combinators (maybeToRight)
+import GHC.Generics (Generic)
+import Data.Hashable (Hashable)
+
+newtype Environment = Environment
+  { mapping :: HashMap Var Expr
+  } deriving (Eq, Show)
+
+lookupVar :: Environment -> Var -> Maybe Expr
+lookupVar (Environment mapping) var =
+  HMap.lookup var mapping
 
 data Literal
   = LitNum Float
@@ -10,12 +23,21 @@ data Literal
   | LitNil
   deriving (Eq, Show)
 
+newtype Var = Var Text
+  deriving (Eq, Show, Generic)
+
+instance Hashable Var
+
 data Expr
   = ExprLit Literal
-  | ExprVar Text
+  | ExprVar Var
   | ExprUn UnOp Expr
   | ExprBin BinOp Expr Expr
   | ExprGroup Expr
+  | ExprAsgn Asgn
+  deriving (Eq, Show)
+
+data Asgn = Asgn Var Expr
   deriving (Eq, Show)
 
 data UnOp
@@ -38,6 +60,12 @@ data BinOp
   | BinLogOr
   deriving (Eq, Show)
 
+data Stmt
+  = StmtExpr Expr
+  | StmtDecl Var Expr
+  | StmtPrint Expr
+  deriving (Eq, Show)
+
 newtype ErrorMsg = ErrorMsg Text
   deriving (Eq, Show)
 
@@ -46,29 +74,38 @@ mkErrorMsg found expected =
   ErrorMsg . T.pack $ "Found " <> show found <> ", but expected " <> show expected <> "."
 
 -- | Recursively evaluate an expression.
-eval :: Expr -> Either ErrorMsg Expr
-eval expr = do
+eval :: Environment -> Expr -> Either ErrorMsg Expr
+eval env expr = do
   case expr of
     ExprLit _lit -> Right expr
-    ExprUn op x -> evalUnary op x
-    ExprBin op x y -> evalBinary op x y
-    ExprGroup x -> eval x
-    ExprVar _ -> Right $ ExprLit LitNil
+    ExprUn op x -> evalUnary env op x
+    ExprBin op x y -> evalBinary env op x y
+    ExprGroup x -> eval env x
+    ExprVar var@(Var name) ->
+      maybeToRight
+        ( ErrorMsg $
+            "No variable named \'"
+              <> name
+              <> "\' found."
+        )
+        $ lookupVar env var
+    ExprAsgn (Asgn var@(Var name) expr) ->
+      undefined
 
-evalUnary :: UnOp -> Expr -> Either ErrorMsg Expr
-evalUnary UnNeg x = do
-  result <- eval x
+evalUnary :: Environment -> UnOp -> Expr -> Either ErrorMsg Expr
+evalUnary env UnNeg x = do
+  result <- eval env x
   case result of
     ExprLit (LitNum val) -> Right $ ExprLit (LitNum (-val))
     _ -> Left $ mkErrorMsg (stringify result) "number"
-evalUnary UnNot x = do
-  result <- eval x
+evalUnary env UnNot x = do
+  result <- eval env x
   Right $ ExprLit (LitBool $ not . isTruthy $ result)
 
-evalBinary :: BinOp -> Expr -> Expr -> Either ErrorMsg Expr
-evalBinary op x y = do
-  x' <- eval x
-  y' <- eval y
+evalBinary :: Environment -> BinOp -> Expr -> Expr -> Either ErrorMsg Expr
+evalBinary env op x y = do
+  x' <- eval env x
+  y' <- eval env y
 
   case op of
     BinEq -> do
@@ -147,15 +184,56 @@ isTruthy (ExprLit LitNil) = False
 isTruthy (ExprLit (LitBool x)) = x
 isTruthy _ = True
 
+{- | The `stringify` function should take an `Expr`
+and generate a `Text` string that resembles Lox syntax.
+
+For example, an expression such as:
+ExprUn UnNeg 
+  (ExprGroup 
+    (ExprBin BinAdd 
+             (ExprLit LitNum 1)
+             (Expr
+             Lit LitNum 2.4)))
+Would be represented as the string:
+"-(1 + 2.4)"
+-}
 stringify :: Expr -> Text
 stringify (ExprLit LitNil) = "nil"
 stringify (ExprLit (LitNum x)) =
   let str = T.pack $ show x in
     if T.isSuffixOf ".0" str then
-      T.drop 2 str
+      T.dropEnd 2 str
     else
       str
 stringify (ExprLit (LitBool x)) =
   if x then "true" else "false"
-stringify (ExprLit (LitStr x)) = x
-stringify expr = T.pack . show $ expr
+stringify (ExprLit (LitStr x)) = "\"" <> x <> "\""
+stringify (ExprGroup x) = "(" <> stringify x <> ")"
+stringify (ExprUn op x) = unOpSym op <> stringify x
+stringify (ExprBin op x y) = stringify x <> " " <> binOpSym op <> " " <> stringify y
+stringify (ExprVar (Var name)) = name
+stringify (ExprAsgn (Asgn (Var name) expr)) = name <> " = " <> stringify expr
+
+-- | Returns the Lox string symbol that corresponds to the unary operator.
+unOpSym :: UnOp -> Text
+unOpSym op = 
+  case op of
+    UnNeg -> "-"
+    UnNot -> "!"
+
+-- | Returns the Lox string symbol that corresponds to the binary operator.
+binOpSym :: BinOp -> Text
+binOpSym op =
+  case op of
+    BinAdd -> "+"
+    BinSub -> "-"
+    BinMul -> "*"
+    BinDiv -> "/"
+    BinLt -> "<"
+    BinLte -> "<="
+    BinGt -> ">"
+    BinGte -> ">="
+    BinEq -> "=="
+    BinNeq -> "!="
+    BinLogAnd -> "and"
+    BinLogOr -> "or"

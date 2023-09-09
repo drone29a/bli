@@ -1,9 +1,13 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use <$>" #-}
 module Bli.Parse (
   pBool,
   pExpr,
   pNil,
   pNum,
   pOperand,
+  pProg,
+  pStmt,
   pStr,
   pVar
 )
@@ -47,17 +51,25 @@ pNil :: Parser Literal
 pNil =
   LitNil <$ symbol "nil" <?> "nil"
 
-pVar :: Parser Expr
+pVar :: Parser Var
 pVar =
-  ExprVar . T.pack <$> lexeme ((:) <$> letterChar <*> many alphaNumChar <?> "variable")
+  Var . T.pack <$> lexeme ((:) <$> letterChar <*> many alphaNumChar <?> "variable")
 
 pOperand :: Parser Expr
 pOperand =
   choice
     [ ExprLit <$> try (pNum <|> pStr <|> pBool <|> pNil)
     , ExprGroup <$> try (between (symbol "(") (symbol ")") pExpr)
-    , try pVar
+    , ExprVar <$> try pVar
+    , ExprAsgn <$> try pAsgn
     ]
+
+pAsgn :: Parser Asgn
+pAsgn = try $ do
+  var <- pVar
+  _ <- symbol "="
+  val <- pExpr
+  return $ Asgn var val
 
 pExpr :: Parser Expr
 pExpr =
@@ -97,6 +109,26 @@ pExpr =
     binary op ctor = InfixL $ ctor <$ symbol op
     prefix :: Text -> (Expr -> Expr) -> Operator Parser Expr
     prefix op ctor = Prefix $ ctor <$ symbol op
+
+pStmt :: Parser Stmt
+pStmt =
+  choice 
+    [ StmtExpr <$> try (pExpr <* symbol ";")
+    , StmtPrint <$> try (between (symbol "print" ) (symbol ";") pExpr)
+    , pStmtDecl
+    ]
+
+pStmtDecl :: Parser Stmt
+pStmtDecl = try $ do
+    _ <- symbol "var"
+    var <- pVar
+    _ <- symbol "="
+    val <- pExpr
+    _ <- symbol ";"
+    return $ StmtDecl var val
+
+pProg :: Parser [Stmt]
+pProg = many pStmt
 
 spaceConsumer :: Parser ()
 spaceConsumer =
