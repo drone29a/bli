@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use <$>" #-}
 module Bli.Parse (
+  pAsgn,
   pBool,
   pExpr,
   pNil,
@@ -61,15 +62,16 @@ pOperand =
     [ ExprLit <$> try (pNum <|> pStr <|> pBool <|> pNil)
     , ExprGroup <$> try (between (symbol "(") (symbol ")") pExpr)
     , ExprVar <$> try pVar
-    , ExprAsgn <$> try pAsgn
     ]
 
 pAsgn :: Parser Asgn
 pAsgn = try $ do
+  -- MBR: Will need to expand to support other tokens that aren't simple variables. 
+  --      e.g., myobj(1, "foo").x = 10
   var <- pVar
   _ <- symbol "="
   val <- pExpr
-  return $ Asgn var val
+  return $ Asgn (LValVar var) val
 
 pExpr :: Parser Expr
 pExpr =
@@ -102,6 +104,9 @@ pExpr =
       ]
     ,
       [ binary "or" (ExprBin BinLogOr)
+      ]
+    ,
+      [ binary "=" (\x y -> ExprPossAsgn $ PossAsgn x y)
       ]
     ]
   where
