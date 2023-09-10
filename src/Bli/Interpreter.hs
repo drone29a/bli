@@ -79,16 +79,23 @@ execute stmt = do
   when debugOn (liftIO $ print stmt)
   case stmt of
     StmtPrint expr -> do
-      result <- tryError $ eval expr
-      case result of
-        Right val -> liftIO $ putStrLn $ stringify val
-        Left errorMsg -> addError errorMsg
-    StmtDecl var expr -> defVar var expr
+      -- MBR: Do we want to propagate error up or 
+      --      handle it by logging?
+      -- result <- tryError $ eval expr
+      -- case result of
+      --   Right val -> liftIO $ putStrLn $ stringify val
+      --   Left errorMsg -> addError errorMsg
+      result <- eval expr
+      liftIO . putStrLn $ stringify result
+    StmtDecl var expr -> do 
+      result <- eval expr
+      defVar var result
     StmtExpr expr -> do
-      result <- tryError $ eval expr
-      case result of
-        Right _val -> return ()
-        Left errorMsg -> addError errorMsg
+      _ <- eval expr
+      return ()
+
+process :: [Stmt] -> [Stmt]
+process stmts = undefined
 
 addError :: ErrorMsg -> Interpreter ()
 addError errorMsg =
@@ -140,8 +147,8 @@ eval expr = do
                   <> name
                   <> "\' found."
             )
-    ExprAsgn (Asgn var@(LValVar (Var name)) expr) -> do
-      val <- eval expr
+    ExprAsgn (Asgn left@(LValVar (Var name)) right) -> do
+      val <- eval right
       -- Perform assignment here
       return val
     ExprPossAsgn (PossAsgn _ _) ->

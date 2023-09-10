@@ -1,6 +1,6 @@
 module Main where
 
-import Bli.Interpreter (interpret)
+import Bli.Interpreter (interpret, process)
 import Bli.Parse (pProg)
 
 import Prelude hiding (readFile)
@@ -28,7 +28,8 @@ execute path = do
   input <- readFile path
   case parse pProg "" input of
     Right stmts -> do
-      interpret stmts
+      let stmts' = process stmts
+      interpret stmts'
     Left err -> do
       print err
 
