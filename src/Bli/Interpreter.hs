@@ -4,35 +4,67 @@ import Bli.Ast (
   Asgn (..),
   BinOp (..),
   Expr (..),
+  LVal (LValVar),
   Literal (..),
   Stmt (..),
   UnOp (..),
   Var (..),
-  stringify, PossAsgn (PossAsgn), LVal (LValVar),
+  stringify, PExpr, UnExpr (UnExpr), BinExpr (BinExpr),
  )
 
 import Prelude hiding (putStrLn)
 
-import Control.Monad.Except (ExceptT, runExceptT, tryError, throwError)
+import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.State (MonadIO (..), StateT (runStateT), gets, modify)
 import Data.Foldable (traverse_)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HMap
-import Data.Text (Text)
-import Data.Text qualified as T
 import Data.Text.IO (putStrLn)
 import Control.Monad (when)
+import Bli.Analysis (parseExpr)
+import Bli.Error (ErrorMsg (ErrorMsg), mkErrorMsg)
+import Data.Maybe (mapMaybe)
+import Control.Applicative ((<|>))
 
-newtype Environment = Environment
-  { mapping :: HashMap Var Expr
-  } deriving (Eq, Show)
 
-lookupVar :: Environment -> Var -> Maybe Expr
-lookupVar (Environment mapping) var =
-  HMap.lookup var mapping
+type Mapping = HashMap Var Expr
 
+newtype GlobalEnv = GlobalEnv {gMapping :: Mapping}
+  deriving (Eq, Show)
+
+newtype LocalEnv = LocalEnv {lMapping :: Mapping}
+  deriving (Eq, Show)
+
+-- | Recursively check for the `Var` value in the local
+-- environments. Once the nested local environments are exhausted,
+-- check the global environment.
+lookupVar :: GlobalEnv -> [LocalEnv] -> Var -> Maybe Expr
+lookupVar gEnv lEnvs var =
+  lookupLocalVar lEnvs var <|> HMap.lookup var (gMapping gEnv)
+
+lookupLocalVar :: [LocalEnv] -> Var -> Maybe Expr
+lookupLocalVar envs var =
+  case mapMaybe (HMap.lookup var . lMapping) envs of
+    [] -> Nothing
+    x : _ -> Just x
+
+-- | There is aloways a base global environment
+-- and there is always an active environment used for
+-- assignments.
+--
+-- Any time a new scope is entered a new local
+-- environment is created and will reference the previously
+-- active environment as its parent environment.
+-- The `environment` field should always reference the most-nested
+-- environment. Whenever entering or exiting a scoped block, the
+-- `environment` will be modified.
+-- 
+-- We could use a single `Environment` type to capture both 
+-- the global and local environments, but then we could
+-- potentially represent unintended nestings of environments.
 data InterpreterState = InterpreterState
-  { environment :: Environment
+  { globalEnv :: GlobalEnv
+  , localEnvs :: [LocalEnv]
   , errors :: [ErrorMsg]
   , debug :: Bool
   }
@@ -41,7 +73,8 @@ data InterpreterState = InterpreterState
 initialInterpreterState :: InterpreterState
 initialInterpreterState =
   InterpreterState
-    { environment = Environment HMap.empty
+    { globalEnv = GlobalEnv HMap.empty
+    , localEnvs = []
     , errors = []
     , debug = True
     }
@@ -52,7 +85,7 @@ type Interpreter = ExceptT ErrorMsg (StateT InterpreterState IO)
 runInterpreter :: ExceptT e (StateT s IO) a -> s -> IO (Either e a, s)
 runInterpreter = runStateT . runExceptT
 
-interpret :: [Stmt] -> IO ()
+interpret :: [Stmt Expr] -> IO ()
 interpret stmts = do
   (_, _finalState) <-
     runInterpreter
@@ -73,7 +106,7 @@ interpretExpr expr = do
 --     Right result -> print $ stringify result
 --     Left errorMsg -> print errorMsg
 
-execute :: Stmt -> Interpreter ()
+execute :: Stmt Expr -> Interpreter ()
 execute stmt = do
   debugOn <- gets debug
   when debugOn (liftIO $ print stmt)
@@ -87,15 +120,31 @@ execute stmt = do
       --   Left errorMsg -> addError errorMsg
       result <- eval expr
       liftIO . putStrLn $ stringify result
-    StmtDecl var expr -> do 
+    StmtDecl var expr -> do
       result <- eval expr
       defVar var result
     StmtExpr expr -> do
       _ <- eval expr
       return ()
+    StmtBlock stmts -> do
+      modify (\s -> s{localEnvs = LocalEnv HMap.empty : localEnvs s})
+      traverse_ execute stmts
+      _headEnv : restEnvs <- gets localEnvs
+      modify (\s -> s{localEnvs = restEnvs})
+    StmtIf cond tBody fBodyOpt -> do
+      result <- eval cond
+      if isTruthy result then
+        execute tBody
+      else
+        traverse_ execute fBodyOpt
+      return ()
 
-process :: [Stmt] -> [Stmt]
-process stmts = undefined
+process :: [Stmt PExpr] -> [Stmt Expr]
+process stmts =
+  let result = traverse (traverse parseExpr) stmts in
+    case result of
+      Left _ -> []
+      Right stmts' -> stmts'
 
 addError :: ErrorMsg -> Interpreter ()
 addError errorMsg =
@@ -105,40 +154,69 @@ defVar :: Var -> Expr -> Interpreter ()
 defVar var expr =
   modify
     ( \s ->
-        s
-          { environment =
-              Environment
-                ( HMap.insert
-                    var
-                    expr
-                    (mapping . environment $ s)
-                )
-          }
+        case s of
+          -- Handle the case where there is an active
+          -- local environment.
+          InterpreterState{localEnvs = (LocalEnv m) : lEnvs} ->
+            s
+              { localEnvs = LocalEnv (HMap.insert var expr m) : lEnvs
+              }
+          -- Handle the case where there is no active
+          -- local environment.
+          InterpreterState
+            { globalEnv = GlobalEnv m
+            , localEnvs = []
+            } ->
+              s
+                { globalEnv = GlobalEnv (HMap.insert var expr m)
+                }
     )
 
+-- | Assign a new value to an existing variable. If the variable does not exist,
+-- then the assignment shall _not_ define a new variable with the name.
 assignVar :: Var -> Expr -> Interpreter ()
-assignVar var expr = undefined
--- This will be similar to defVar, but first needs to check if variable is defined?
--- Or does that matter, assignment becomes definition? Check Lox spec.
+assignVar var@(Var vName) val = do
+  gEnv <- gets globalEnv
+  lEnvs <- gets localEnvs
+  case assignLocalVar lEnvs var val of
+    Just lEnvs' -> do
+      modify ( \s -> s{localEnvs = lEnvs'})
+    Nothing -> case assignGlobalVar gEnv var val of
+      Just gEnv' -> do
+        modify ( \s -> s{globalEnv = gEnv'})
+      Nothing -> 
+        throwError . ErrorMsg $ 
+          "No variable (" <> vName <> ") found for assignment."
 
-newtype ErrorMsg = ErrorMsg Text
-  deriving (Eq, Show)
+assignLocalVar :: [LocalEnv] -> Var -> Expr -> Maybe [LocalEnv]
+assignLocalVar envs var val =
+  case remEnvs of
+    x : xs -> Just $ preEnvs ++ [x{lMapping = HMap.insert var val (lMapping x)}] ++ xs
+    _ -> Nothing
+    where
+      (preEnvs, remEnvs) = break (HMap.member var . lMapping) envs
 
-mkErrorMsg :: Show a => a -> a -> ErrorMsg
-mkErrorMsg found expected =
-  ErrorMsg . T.pack $ "Found " <> show found <> ", but expected " <> show expected <> "."
+assignGlobalVar :: GlobalEnv -> Var -> Expr -> Maybe GlobalEnv
+assignGlobalVar env var val =
+  if HMap.member var (gMapping env) then
+    Just $ env{gMapping = HMap.insert var val (gMapping env)}
+  else
+    Nothing
+
+
 
 -- | Recursively evaluate an expression.
 eval :: Expr -> Interpreter Expr
 eval expr = do
   case expr of
     ExprLit _lit -> return expr
-    ExprUn op x -> evalUnary op x
-    ExprBin op x y -> evalBinary op x y
+    ExprUn (UnExpr op x) -> evalUnary op x
+    ExprBin (BinExpr op x y) -> evalBinary op x y
     ExprGroup x -> eval x
     ExprVar var@(Var name) -> do
-      env <- gets environment
-      case lookupVar env var of
+      gEnv <- gets globalEnv
+      lEnvs <- gets localEnvs
+      case lookupVar gEnv lEnvs var of
         Just val -> return val
         Nothing ->
           throwError
@@ -147,12 +225,10 @@ eval expr = do
                   <> name
                   <> "\' found."
             )
-    ExprAsgn (Asgn left@(LValVar (Var name)) right) -> do
+    ExprAsgn (Asgn (LValVar var) right) -> do
       val <- eval right
-      -- Perform assignment here
+      assignVar var val
       return val
-    ExprPossAsgn (PossAsgn _ _) ->
-      throwError . ErrorMsg $ "Unexpected lingering assignment."
 
 evalUnary :: UnOp -> Expr -> Interpreter Expr
 evalUnary UnNeg x = do

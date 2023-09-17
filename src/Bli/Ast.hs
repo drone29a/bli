@@ -17,25 +17,36 @@ newtype Var = Var Text
 
 instance Hashable Var
 
+data BinExpr a = BinExpr BinOp a a
+  deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
+
+data UnExpr a = UnExpr UnOp a
+  deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
+
+data Asgn a b = Asgn a b
+  deriving (Eq, Show, Functor, Generic)
+
+newtype LVal = LValVar Var
+  deriving (Eq, Show, Generic)
+
 -- MBR: Consider distinguishing between parsed expressions
 --      and analyzed expressions. Perhaps with PExpr vs Expr
+data PExpr 
+  = PExprLit Literal
+  | PExprVar Var
+  | PExprUn (UnExpr PExpr)
+  | PExprBin (BinExpr PExpr)
+  | PExprGroup PExpr
+  | PExprAsgn (Asgn LVal PExpr)
+  deriving (Eq, Show)
+
 data Expr
   = ExprLit Literal
   | ExprVar Var
-  | ExprUn UnOp Expr
-  | ExprBin BinOp Expr Expr
+  | ExprUn (UnExpr Expr)
+  | ExprBin (BinExpr Expr)
   | ExprGroup Expr
-  | ExprAsgn Asgn
-  | ExprPossAsgn PossAsgn
-  deriving (Eq, Show)
-
-newtype LVal = LValVar Var
-  deriving (Eq, Show)
-
-data Asgn = Asgn LVal Expr
-  deriving (Eq, Show)
-
-data PossAsgn = PossAsgn Expr Expr
+  | ExprAsgn (Asgn LVal Expr)
   deriving (Eq, Show)
 
 data UnOp
@@ -58,11 +69,13 @@ data BinOp
   | BinLogOr
   deriving (Eq, Show)
 
-data Stmt
-  = StmtExpr Expr
-  | StmtDecl Var Expr
-  | StmtPrint Expr
-  deriving (Eq, Show)
+data Stmt a
+  = StmtExpr a
+  | StmtDecl Var a
+  | StmtPrint a
+  | StmtBlock [Stmt a]
+  | StmtIf a (Stmt a) (Maybe (Stmt a))
+  deriving (Eq, Show, Functor, Foldable, Traversable)
 
 {- | The `stringify` function should take an `Expr`
 and generate a `Text` string that resembles Lox syntax.
@@ -89,11 +102,10 @@ stringify (ExprLit (LitBool x)) =
   if x then "true" else "false"
 stringify (ExprLit (LitStr x)) = "\"" <> x <> "\""
 stringify (ExprGroup x) = "(" <> stringify x <> ")"
-stringify (ExprUn op x) = unOpSym op <> stringify x
-stringify (ExprBin op x y) = stringify x <> " " <> binOpSym op <> " " <> stringify y
+stringify (ExprUn (UnExpr op x)) = unOpSym op <> stringify x
+stringify (ExprBin (BinExpr op x y)) = stringify x <> " " <> binOpSym op <> " " <> stringify y
 stringify (ExprVar (Var name)) = name
 stringify (ExprAsgn (Asgn (LValVar (Var name)) expr)) = name <> " = " <> stringify expr
-stringify (ExprPossAsgn (PossAsgn left right)) = stringify left <> " = " <> stringify right
 
 -- | Returns the Lox string symbol that corresponds to the unary operator.
 unOpSym :: UnOp -> Text

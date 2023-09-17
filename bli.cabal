@@ -21,7 +21,9 @@ extra-source-files: CHANGELOG.md
 library
   exposed-modules:
     Bli
+    Bli.Analysis
     Bli.Ast
+    Bli.Error
     Bli.Interpreter
     Bli.Parse
 
@@ -42,7 +44,10 @@ library
 
   hs-source-dirs:     src
   default-language:   GHC2021
-  default-extensions: OverloadedStrings
+  default-extensions: 
+    DuplicateRecordFields,
+    OverloadedStrings
+
   ghc-options:        -Wall
 
 executable bli

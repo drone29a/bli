@@ -1,31 +1,20 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use <$>" #-}
-module Bli.Parse (
-  pAsgn,
-  pBool,
-  pExpr,
-  pNil,
-  pNum,
-  pOperand,
-  pProg,
-  pStmt,
-  pStr,
-  pVar
-)
-where
+module Bli.Parse where
 
 import Control.Monad.Combinators.Expr
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Void (Void)
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import Text.Megaparsec.Char.Lexer (charLiteral)
 import Text.Megaparsec.Char.Lexer qualified as L
 
 import Bli.Ast
+import Bli.Error (ErrorMsg)
+import Control.Monad (void)
 
-type Parser = Parsec Void Text
+type Parser = Parsec ErrorMsg Text
 
 pNum :: Parser Literal
 pNum = LitNum <$> (try float <|> integer) <?> "number literal"
@@ -56,83 +45,96 @@ pVar :: Parser Var
 pVar =
   Var . T.pack <$> lexeme ((:) <$> letterChar <*> many alphaNumChar <?> "variable")
 
-pOperand :: Parser Expr
-pOperand =
+pOperand :: Parser PExpr
+pOperand = try $ do
   choice
-    [ ExprLit <$> try (pNum <|> pStr <|> pBool <|> pNil)
-    , ExprGroup <$> try (between (symbol "(") (symbol ")") pExpr)
-    , ExprVar <$> try pVar
+    [ PExprLit <$> try (pNum <|> pStr <|> pBool <|> pNil)
+    , PExprGroup <$> try (between (symbol "(") (symbol ")") pExpr)
+    , PExprVar <$> try pVar
+    , try pAsgn
     ]
 
-pAsgn :: Parser Asgn
+pAsgn :: Parser PExpr
 pAsgn = try $ do
   -- MBR: Will need to expand to support other tokens that aren't simple variables. 
   --      e.g., myobj(1, "foo").x = 10
   var <- pVar
   _ <- symbol "="
-  val <- pExpr
-  return $ Asgn (LValVar var) val
+  right <- pExpr
+  return . PExprAsgn $ Asgn (LValVar var) right
 
-pExpr :: Parser Expr
-pExpr =
+pExpr :: Parser PExpr
+pExpr = try pAsgn <|> try pExpr'
+
+pExpr' :: Parser PExpr
+pExpr' =
   makeExprParser
     pOperand
     [
-      [ prefix "-" (ExprUn UnNeg)
-      , prefix "!" (ExprUn UnNot)
+      [ prefix "-" (PExprUn . UnExpr UnNeg)
+      , prefix "!" (PExprUn . UnExpr UnNot)
       ]
     ,
-      [ binary "*" (ExprBin BinMul)
-      , binary "/" (ExprBin BinDiv)
+      [ binary "*" (\x y -> PExprBin $ BinExpr BinMul x y)
+      , binary "/" (\x y -> PExprBin $ BinExpr BinDiv x y)
       ]
     ,
-      [ binary "+" (ExprBin BinAdd)
-      , binary "-" (ExprBin BinSub)
+      [ binary "+" (\x y -> PExprBin $ BinExpr BinAdd x y)
+      , binary "-" (\x y -> PExprBin $ BinExpr BinSub x y)
       ]
     ,
-      [ binary "<=" (ExprBin BinLte)
-      , binary "<" (ExprBin BinLt)
-      , binary ">=" (ExprBin BinGte)
-      , binary ">" (ExprBin BinGt)
+      [ binary "<=" (\x y -> PExprBin $ BinExpr BinLte x y)
+      , binary "<" (\x y -> PExprBin $ BinExpr BinLt x y)
+      , binary ">=" (\x y -> PExprBin $ BinExpr BinGte x y)
+      , binary ">" (\x y -> PExprBin $ BinExpr BinGt x y)
       ]
     ,
-      [ binary "==" (ExprBin BinEq)
-      , binary "!=" (ExprBin BinNeq)
+      [ binary "==" (\x y -> PExprBin $ BinExpr BinEq x y)
+      , binary "!=" (\x y -> PExprBin $ BinExpr BinNeq x y)
       ]
     ,
-      [ binary "and" (ExprBin BinLogAnd)
+      [ binary "and" (\x y -> PExprBin $ BinExpr BinLogAnd x y)
       ]
     ,
-      [ binary "or" (ExprBin BinLogOr)
-      ]
-    ,
-      [ binary "=" (\x y -> ExprPossAsgn $ PossAsgn x y)
+      [ binary "or" (\x y -> PExprBin $ BinExpr BinLogOr x y)
       ]
     ]
   where
-    binary :: Text -> (Expr -> Expr -> Expr) -> Operator Parser Expr
+    binary :: Text -> (PExpr -> PExpr -> PExpr) -> Operator Parser PExpr
     binary op ctor = InfixL $ ctor <$ symbol op
-    prefix :: Text -> (Expr -> Expr) -> Operator Parser Expr
+    prefix :: Text -> (PExpr -> PExpr) -> Operator Parser PExpr
     prefix op ctor = Prefix $ ctor <$ symbol op
 
-pStmt :: Parser Stmt
+pStmt :: Parser (Stmt PExpr)
 pStmt =
-  choice 
+  choice
     [ StmtExpr <$> try (pExpr <* symbol ";")
     , StmtPrint <$> try (between (symbol "print" ) (symbol ";") pExpr)
-    , pStmtDecl
+    , try pStmtDecl
+    , StmtBlock <$> try (between (symbol "{") (symbol "}") $ many pStmt)
+    , try pStmtIf
     ]
 
-pStmtDecl :: Parser Stmt
-pStmtDecl = try $ do
-    _ <- symbol "var"
+pStmtDecl :: Parser (Stmt PExpr)
+pStmtDecl = do
+    void (symbol "var")
     var <- pVar
-    _ <- symbol "="
+    void (symbol "=")
     val <- pExpr
-    _ <- symbol ";"
+    void (symbol ";")
     return $ StmtDecl var val
 
-pProg :: Parser [Stmt]
+pStmtIf :: Parser (Stmt PExpr)
+pStmtIf = do
+  void (symbol "if")
+  void (symbol "(")
+  cond <- pExpr
+  void (symbol ")")
+  trueBody <- pStmt
+  falseBody <- try . optional $ symbol "else" *> pStmt
+  return $ StmtIf cond trueBody falseBody
+
+pProg :: Parser [Stmt PExpr]
 pProg = many pStmt
 
 spaceConsumer :: Parser ()

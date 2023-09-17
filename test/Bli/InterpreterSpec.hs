@@ -8,6 +8,8 @@ import Data.Text
 import Test.HUnit
 import Test.Hspec
 import Text.Megaparsec (parse)
+import Bli.Analysis (parseExpr)
+import Bli.Error (ErrorMsg(ErrorMsg))
 
 assertParseFailure :: IO a
 assertParseFailure = assertFailure "could not parse test expression"
@@ -16,8 +18,11 @@ exprShouldBe :: (Show a, Eq a) => Text -> (Expr -> IO a) -> a -> Expectation
 exprShouldBe exprStr f expected =
   case parse pExpr "" exprStr of
     Right expr -> do
-        result <- f expr
-        result `shouldBe` expected
+        case parseExpr expr of
+            Right expr' ->  do
+                result <- f expr'
+                result `shouldBe` expected
+            Left _ -> assertParseFailure
     Left _ -> assertParseFailure
 
 spec :: Spec

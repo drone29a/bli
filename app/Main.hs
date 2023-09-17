@@ -26,7 +26,7 @@ import System.Environment (getArgs)
 execute :: FilePath -> IO ()
 execute path = do
   input <- readFile path
-  case parse pProg "" input of
+  case parse pProg path input of
     Right stmts -> do
       let stmts' = process stmts
       interpret stmts'
