@@ -60,6 +60,8 @@ spec = do
   describe "evaluating expressions" $ do
     it "should support arithmetic expressions" $ do
       exprShouldBe "(1 + 10.5) * 50.5 / 2" interpretExpr (Right (ExprLit (LitNum 290.375)))
+    it "should support string concatenation" $ do
+      exprShouldBe "\"taco\" + \"cat\"" interpretExpr (Right (ExprLit (LitStr "tacocat")))
     it "should support boolean expressions" $ do
       exprShouldBe "true and (false or (1 <= 2))" interpretExpr (Right (ExprLit (LitBool True)))
     it "should should produce type errors" $ do

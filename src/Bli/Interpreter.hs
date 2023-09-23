@@ -284,9 +284,16 @@ evalBinary op x y = do
       yNum <- getNum y'
       return $ ExprLit (LitBool $ xNum >= yNum)
     BinAdd -> do
-      xNum <- getNum x'
-      yNum <- getNum y'
-      return $ ExprLit (LitNum $ xNum + yNum)
+      case x' of
+        ExprLit (LitNum _)-> do
+          xNum <- getNum x'
+          yNum <- getNum y'
+          return $ ExprLit (LitNum $ xNum + yNum)
+        ExprLit (LitStr _) -> do  
+          xStr <- getStr x'
+          yStr <- getStr y'
+          return $ ExprLit (LitStr $ xStr <> yStr)
+        _ -> throwError $ mkErrorMsg (stringify x') "number or string"
     BinSub -> do
       xNum <- getNum x'
       yNum <- getNum y'
@@ -308,6 +315,8 @@ evalBinary op x y = do
       yBool <- getBool y'
       return $ ExprLit (LitBool $ xBool || yBool)
 
+-- | This function determines if two Lox expressions
+-- are comparable for the BinEq and BinNeq operations.
 checkEq :: Expr -> Expr -> Interpreter ()
 checkEq x y =
   case (x, y) of
@@ -320,16 +329,33 @@ checkEq x y =
       throwError . ErrorMsg $
         "Operands: " <> stringify x <> " and " <> stringify y <> "are not comparable."
 
+-- | When a number is expected, either throw 
+-- an error message when a number is not found
+-- or return the number.
 getNum :: Expr -> Interpreter Float
 getNum (ExprLit (LitNum x)) = return x
 getNum expr =
   throwError . ErrorMsg $
     "Number expected but found: " <> stringify expr <> "."
 
+-- | When a string is expected, either throw 
+-- an error message that a string is not found
+-- or return the string.
+getStr :: Expr -> Interpreter Text
+getStr (ExprLit (LitStr s)) = return s
+getStr expr =
+  throwError . ErrorMsg $
+    "String expected but found: " <> stringify expr <> "."
+
 getBool :: Expr -> Interpreter Bool
 getBool (ExprLit (LitBool x)) = return x
 getBool expr = return $ isTruthy expr
 
+-- | Cast a non-boolean Lox expression to a boolean for use
+-- in boolean operations. 
+-- The `nil` value is `false`, all other expressions are
+-- considered `true`. Boolean values are either true or false
+-- depending on their value.
 isTruthy :: Expr -> Bool
 isTruthy (ExprLit LitNil) = False
 isTruthy (ExprLit (LitBool x)) = x
