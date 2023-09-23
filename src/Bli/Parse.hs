@@ -119,10 +119,11 @@ pStmtDecl :: Parser (Stmt PExpr)
 pStmtDecl = do
     void (symbol "var")
     var <- pVar
-    void (symbol "=")
-    val <- pExpr
+    mVal <- try . optional $ symbol "=" *> pExpr
     void (symbol ";")
-    return $ StmtDecl var val
+    case mVal of
+      Just val -> return $ StmtDecl var val
+      Nothing -> return $ StmtDecl var (PExprLit LitNil)
 
 pStmtIf :: Parser (Stmt PExpr)
 pStmtIf = do

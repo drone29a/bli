@@ -1,18 +1,25 @@
 module Main where
 
-import Bli.Interpreter (interpret, process)
+import Bli.Interpreter (
+  InterpreterState (collectOutput),
+  debug,
+  initialInterpreterState,
+  interpret',
+  process,
+ )
 import Bli.Parse (pProg)
 
 import Prelude hiding (readFile)
 
+import Control.Monad (void)
 import Data.Text.IO (readFile)
-import Text.Megaparsec (parse)
 import System.Environment (getArgs)
+import Text.Megaparsec (parse)
 
 -- repl :: IO ()
 -- repl = do
 --   input <- T.pack <$> getLine
---   case input of 
+--   case input of
 --     ":q" -> return ()
 --     _ -> do
 --       case parse pExpr "" input of
@@ -29,7 +36,13 @@ execute path = do
   case parse pProg path input of
     Right stmts -> do
       let stmts' = process stmts
-      interpret stmts'
+      void $
+        interpret'
+          initialInterpreterState
+            { collectOutput = False
+            , debug = False
+            }
+          stmts'
     Left err -> do
       print err
 
@@ -38,4 +51,3 @@ main = do
   args <- getArgs
   let sourcePath = head args
   execute sourcePath
-

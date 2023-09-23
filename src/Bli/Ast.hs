@@ -10,27 +10,44 @@ data Literal
   | LitStr Text
   | LitBool Bool
   | LitNil
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
+instance Hashable Literal
 
 newtype Var = Var Text
   deriving (Eq, Show, Generic)
-
-instance Hashable Var
+  deriving anyclass (Hashable)
 
 data BinExpr a = BinExpr BinOp a a
-  deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
+  deriving
+    ( Eq
+    , Show
+    , Functor
+    , Foldable
+    , Traversable
+    , Generic
+    , Hashable
+    )
 
 data UnExpr a = UnExpr UnOp a
-  deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
+  deriving
+    ( Eq
+    , Show
+    , Functor
+    , Foldable
+    , Traversable
+    , Generic
+    , Hashable
+    )
 
 data Asgn a b = Asgn a b
-  deriving (Eq, Show, Functor, Generic)
+  deriving (Eq, Show, Functor, Generic, Hashable)
 
 newtype LVal = LValVar Var
   deriving (Eq, Show, Generic)
+  deriving anyclass (Hashable)
 
--- MBR: Consider distinguishing between parsed expressions
---      and analyzed expressions. Perhaps with PExpr vs Expr
+-- | The `PExpr` type is used by `Bli.Parse` to construct
+-- an initial Lox AST according to the capabilities of the parser.
 data PExpr 
   = PExprLit Literal
   | PExprVar Var
@@ -38,8 +55,12 @@ data PExpr
   | PExprBin (BinExpr PExpr)
   | PExprGroup PExpr
   | PExprAsgn (Asgn LVal PExpr)
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, Hashable)
 
+-- | The `Expr` type is used for a final representation
+-- of Lox code. If additional post-procesing after parsing
+-- is required, it can be implemented as a translation
+-- between `PExpr` and `Expr`.
 data Expr
   = ExprLit Literal
   | ExprVar Var
@@ -47,12 +68,12 @@ data Expr
   | ExprBin (BinExpr Expr)
   | ExprGroup Expr
   | ExprAsgn (Asgn LVal Expr)
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, Hashable)
 
 data UnOp
   = UnNeg
   | UnNot
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, Hashable)
 
 data BinOp
   = BinEq
@@ -67,7 +88,7 @@ data BinOp
   | BinDiv
   | BinLogAnd
   | BinLogOr
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, Hashable)
 
 data Stmt a
   = StmtExpr a
@@ -75,7 +96,15 @@ data Stmt a
   | StmtPrint a
   | StmtBlock [Stmt a]
   | StmtIf a (Stmt a) (Maybe (Stmt a))
-  deriving (Eq, Show, Functor, Foldable, Traversable)
+  deriving
+    ( Eq
+    , Show
+    , Functor
+    , Foldable
+    , Traversable
+    , Generic
+    , Hashable
+    )
 
 {- | The `stringify` function should take an `Expr`
 and generate a `Text` string that resembles Lox syntax.

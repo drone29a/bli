@@ -44,7 +44,9 @@ library
 
   hs-source-dirs:     src
   default-language:   GHC2021
-  default-extensions: 
+  default-extensions:
+    DeriveAnyClass,
+    DerivingStrategies, 
     DuplicateRecordFields,
     OverloadedStrings
 
@@ -74,7 +76,9 @@ test-suite spec
   main-is: Spec.hs
   hs-source-dirs:
     test
-  other-modules: Bli.AstSpec
+  other-modules: 
+    Bli.AstSpec,
+    Bli.InterpreterSpec
   ghc-options: -Wall
   build-depends:
     , base  ^>=4.16.4.0
@@ -83,6 +87,7 @@ test-suite spec
     , HUnit ==1.6.*
     , megaparsec  ^>=9.4.0
     , text  ^>=1.2 && <2.0
+    , unordered-containers ^>=0.2.19.0
   default-language:   GHC2021
   default-extensions: OverloadedStrings
   build-tool-depends: hspec-discover:hspec-discover == 2.*

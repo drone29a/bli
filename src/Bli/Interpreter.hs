@@ -12,19 +12,22 @@ import Bli.Ast (
   stringify, PExpr, UnExpr (UnExpr), BinExpr (BinExpr),
  )
 
-import Prelude hiding (putStrLn)
+import Prelude hiding (putStr, putStrLn)
 
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.State (MonadIO (..), StateT (runStateT), gets, modify)
 import Data.Foldable (traverse_)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HMap
-import Data.Text.IO (putStrLn)
-import Control.Monad (when)
+import Data.Text.IO (putStr)
+import Control.Monad (when, void)
 import Bli.Analysis (parseExpr)
 import Bli.Error (ErrorMsg (ErrorMsg), mkErrorMsg)
 import Data.Maybe (mapMaybe)
 import Control.Applicative ((<|>))
+import Data.Text (Text)
+import qualified Data.Text as T
+import System.IO (stdout, hFlush)
 
 
 type Mapping = HashMap Var Expr
@@ -67,6 +70,8 @@ data InterpreterState = InterpreterState
   , localEnvs :: [LocalEnv]
   , errors :: [ErrorMsg]
   , debug :: Bool
+  , collectOutput :: Bool
+  , output :: [Text]
   }
   deriving (Eq, Show)
 
@@ -77,6 +82,8 @@ initialInterpreterState =
     , localEnvs = []
     , errors = []
     , debug = True
+    , collectOutput = True
+    , output = []
     }
 
 -- type Interpreter = StateT InterpreterState IO
@@ -86,12 +93,17 @@ runInterpreter :: ExceptT e (StateT s IO) a -> s -> IO (Either e a, s)
 runInterpreter = runStateT . runExceptT
 
 interpret :: [Stmt Expr] -> IO ()
-interpret stmts = do
-  (_, _finalState) <-
+interpret = void . interpret' initialInterpreterState
+
+interpret' :: InterpreterState -> [Stmt Expr] -> IO InterpreterState
+interpret' startState stmts = do
+  (result, finalState) <-
     runInterpreter
       (traverse_ execute stmts)
-      initialInterpreterState
-  return ()
+      startState
+  case result of
+    Left (ErrorMsg err) -> error $ T.unpack err
+    Right () -> return finalState
 
 interpretExpr :: Expr -> IO (Either ErrorMsg Expr)
 interpretExpr expr = do
@@ -100,11 +112,20 @@ interpretExpr expr = do
     initialInterpreterState
   return result
 
--- interpret :: Expr -> IO ()
--- interpret expr = do
---   case eval expr of
---     Right result -> print $ stringify result
---     Left errorMsg -> print errorMsg
+writeOut :: Text -> Interpreter ()
+writeOut str = do
+  collectOutputOn <- gets collectOutput
+  -- If debug is enabled, log the output to the state
+  if collectOutputOn
+    then
+      modify
+          (\s -> s{output = str : output s})
+    else do 
+      liftIO $ putStr str
+      liftIO $ hFlush stdout
+
+writeOutLn :: Text -> Interpreter ()
+writeOutLn str = writeOut $ str <> "\n"
 
 execute :: Stmt Expr -> Interpreter ()
 execute stmt = do
@@ -112,14 +133,8 @@ execute stmt = do
   when debugOn (liftIO $ print stmt)
   case stmt of
     StmtPrint expr -> do
-      -- MBR: Do we want to propagate error up or 
-      --      handle it by logging?
-      -- result <- tryError $ eval expr
-      -- case result of
-      --   Right val -> liftIO $ putStrLn $ stringify val
-      --   Left errorMsg -> addError errorMsg
       result <- eval expr
-      liftIO . putStrLn $ stringify result
+      writeOutLn $ stringify result
     StmtDecl var expr -> do
       result <- eval expr
       defVar var result
