@@ -14,8 +14,8 @@ import Bli.Ast (
 
 import Prelude hiding (putStr, putStrLn)
 
-import Control.Monad.Except (ExceptT, runExceptT, throwError)
-import Control.Monad.State (MonadIO (..), StateT (runStateT), gets, modify)
+import Control.Monad.Except (ExceptT, runExceptT, throwError, MonadError)
+import Control.Monad.State (MonadIO (..), StateT (runStateT), gets, modify, MonadState)
 import Data.Foldable (traverse_)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HMap
@@ -28,6 +28,7 @@ import Control.Applicative ((<|>))
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.IO (stdout, hFlush)
+import Control.Monad.Loops (whileM_)
 
 
 type Mapping = HashMap Var Expr
@@ -86,11 +87,21 @@ initialInterpreterState =
     , output = []
     }
 
--- type Interpreter = StateT InterpreterState IO
-type Interpreter = ExceptT ErrorMsg (StateT InterpreterState IO)
+newtype Interpreter a = Interpreter
+  { unInterpreter :: ExceptT ErrorMsg (StateT InterpreterState IO) a
+  }
+  deriving (Functor)
+  deriving newtype
+    ( Applicative
+    , Monad
+    , MonadFail
+    , MonadError ErrorMsg
+    , MonadIO
+    , MonadState InterpreterState
+    )
 
-runInterpreter :: ExceptT e (StateT s IO) a -> s -> IO (Either e a, s)
-runInterpreter = runStateT . runExceptT
+runInterpreter :: Interpreter a -> InterpreterState -> IO (Either ErrorMsg a, InterpreterState)
+runInterpreter = runStateT . runExceptT . unInterpreter
 
 interpret :: [Stmt Expr] -> IO ()
 interpret = void . interpret' initialInterpreterState
@@ -142,10 +153,9 @@ execute stmt = do
       _ <- eval expr
       return ()
     StmtBlock stmts -> do
-      modify (\s -> s{localEnvs = LocalEnv HMap.empty : localEnvs s})
+      pushEnv
       traverse_ execute stmts
-      _headEnv : restEnvs <- gets localEnvs
-      modify (\s -> s{localEnvs = restEnvs})
+      popEnv
     StmtIf cond tBody fBodyOpt -> do
       result <- eval cond
       if isTruthy result then
@@ -153,6 +163,17 @@ execute stmt = do
       else
         traverse_ execute fBodyOpt
       return ()
+    StmtWhile cond body ->
+      whileM_ (fmap isTruthy . eval $ cond) (execute body)
+
+
+pushEnv :: Interpreter ()
+pushEnv = modify (\s -> s{localEnvs = LocalEnv HMap.empty : localEnvs s})
+
+popEnv :: Interpreter ()
+popEnv = do
+  _headEnv : restEnvs <- gets localEnvs
+  modify (\s -> s{localEnvs = restEnvs})
 
 process :: [Stmt PExpr] -> [Stmt Expr]
 process stmts =

@@ -12,7 +12,8 @@ import Text.Megaparsec.Char.Lexer qualified as L
 
 import Bli.Ast
 import Bli.Error (ErrorMsg)
-import Control.Monad (void)
+import Control.Monad (void, when)
+import Data.Maybe (isNothing, fromMaybe, catMaybes)
 
 type Parser = Parsec ErrorMsg Text
 
@@ -108,29 +109,67 @@ pExpr' =
 pStmt :: Parser (Stmt PExpr)
 pStmt =
   choice
-    [ StmtExpr <$> try (pExpr <* symbol ";")
+    [ try pStmtExpr
     , StmtPrint <$> try (between (symbol "print" ) (symbol ";") pExpr)
     , try pStmtDecl
+    , try pStmtWhile
+    , try pStmtFor
     , StmtBlock <$> try (between (symbol "{") (symbol "}") $ many pStmt)
     , try pStmtIf
     ]
 
+pStmtExpr :: Parser (Stmt PExpr)
+pStmtExpr = StmtExpr <$> try (pExpr <* symbol ";")
+
 pStmtDecl :: Parser (Stmt PExpr)
 pStmtDecl = do
-    void (symbol "var")
+    void $ symbol "var"
     var <- pVar
     mVal <- try . optional $ symbol "=" *> pExpr
-    void (symbol ";")
+    void $ symbol ";"
     case mVal of
       Just val -> return $ StmtDecl var val
       Nothing -> return $ StmtDecl var (PExprLit LitNil)
 
+pStmtWhile :: Parser (Stmt PExpr)
+pStmtWhile = do
+  void $ symbol "while"
+  void $ symbol "("
+  cond <- pExpr
+  void $ symbol ")"
+  body <- pStmt
+  return $ StmtWhile cond body
+
+pStmtFor :: Parser (Stmt PExpr)
+pStmtFor = do
+  void $ symbol "for"
+  void $ symbol "("
+  mInit <- optional $ choice [ try pStmtDecl
+                             , try pStmtExpr
+                             ]
+  -- If no variable declaration or assignment
+  -- is present, we expect a lone semicolon
+  when (isNothing mInit) (void $ symbol ";")
+  -- Parse the optional condition expression
+  mCond <- try . optional $ pExpr
+  void $ symbol ";"
+  -- Parse the optional increment expression
+  mIncr <- try . optional $ pExpr
+  void $ symbol ")"
+  body <- pStmt
+
+  let whileBody = case (body, mIncr) of
+        (StmtBlock stmts, Just incr) -> StmtBlock $ stmts ++ [StmtExpr incr]
+        _ -> body
+      while = StmtWhile (fromMaybe (PExprLit (LitBool True)) mCond) whileBody
+  return $ StmtBlock (catMaybes [mInit, Just while])
+  
 pStmtIf :: Parser (Stmt PExpr)
 pStmtIf = do
-  void (symbol "if")
-  void (symbol "(")
+  void $ symbol "if"
+  void $ symbol "("
   cond <- pExpr
-  void (symbol ")")
+  void $ symbol ")"
   trueBody <- pStmt
   falseBody <- try . optional $ symbol "else" *> pStmt
   return $ StmtIf cond trueBody falseBody

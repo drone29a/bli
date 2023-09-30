@@ -1,5 +1,5 @@
 module Bli.Analysis where
-import Bli.Ast (Expr (..), PExpr (..), Asgn (..), LVal (LValVar))
+import Bli.Ast (Expr (..), PExpr (..), Asgn (..), LVal (LValVar), Stmt)
 import Data.Text ( Text )
 import Data.Text qualified as T
 
@@ -22,3 +22,10 @@ parseExpr (PExprAsgn (Asgn left right)) = do
 parseLVal :: PExpr -> Either Text LVal
 parseLVal (PExprVar var) = Right $ LValVar var
 parseLVal expr = Left $ "The expression \"" <> T.pack (show expr) <> "\" is not an l-value."
+
+process :: [Stmt PExpr] -> [Stmt Expr]
+process stmts =
+  let result = traverse (traverse parseExpr) stmts in
+    case result of
+      Left _ -> []
+      Right stmts' -> stmts'

@@ -96,6 +96,7 @@ data Stmt a
   | StmtPrint a
   | StmtBlock [Stmt a]
   | StmtIf a (Stmt a) (Maybe (Stmt a))
+  | StmtWhile a (Stmt a)
   deriving
     ( Eq
     , Show
