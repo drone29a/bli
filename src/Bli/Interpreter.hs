@@ -172,8 +172,11 @@ pushEnv = modify (\s -> s{localEnvs = LocalEnv HMap.empty : localEnvs s})
 
 popEnv :: Interpreter ()
 popEnv = do
-  _headEnv : restEnvs <- gets localEnvs
-  modify (\s -> s{localEnvs = restEnvs})
+  lEnvs <- gets localEnvs
+  case lEnvs of
+    [] -> addError $ ErrorMsg "Attempted to pop local environment block when none are on the stack."
+    _headEnv : restEnvs ->
+      modify (\s -> s{localEnvs = restEnvs})
 
 process :: [Stmt PExpr] -> [Stmt Expr]
 process stmts =
@@ -238,8 +241,6 @@ assignGlobalVar env var val =
     Just $ env{gMapping = HMap.insert var val (gMapping env)}
   else
     Nothing
-
-
 
 -- | Recursively evaluate an expression.
 eval :: Expr -> Interpreter Expr
