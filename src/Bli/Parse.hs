@@ -158,9 +158,9 @@ pStmtFor = do
   void $ symbol ")"
   body <- pStmt
 
-  let whileBody = case (body, mIncr) of
-        (StmtBlock stmts, Just incr) -> StmtBlock $ stmts ++ [StmtExpr incr]
-        _ -> body
+  let whileBody = case mIncr of
+        Just incr -> StmtBlock [body, StmtExpr incr]
+        Nothing -> body
       while = StmtWhile (fromMaybe (PExprLit (LitBool True)) mCond) whileBody
   return $ StmtBlock (catMaybes [mInit, Just while])
   
