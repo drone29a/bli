@@ -4,4 +4,6 @@
     print i;
     i = i + 1;
   }
+  print "after loop";
+  print i;
 }
