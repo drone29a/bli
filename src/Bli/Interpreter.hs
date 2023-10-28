@@ -9,7 +9,7 @@ import Bli.Ast (
   Stmt (..),
   UnOp (..),
   Var (..),
-  stringify, PExpr, UnExpr (UnExpr), BinExpr (BinExpr),
+  stringify, PExpr, UnExpr (UnExpr), BinExpr (BinExpr), GlobalEnv (..), LocalEnv (..), Func (..),
  )
 
 import Prelude hiding (putStr, putStrLn)
@@ -29,15 +29,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import System.IO (stdout, hFlush)
 import Control.Monad.Loops (whileM_)
-
-
-type Mapping = HashMap Var Expr
-
-newtype GlobalEnv = GlobalEnv {gMapping :: Mapping}
-  deriving (Eq, Show)
-
-newtype LocalEnv = LocalEnv {lMapping :: Mapping}
-  deriving (Eq, Show)
 
 -- | Recursively check for the `Var` value in the local
 -- environments. Once the nested local environments are exhausted,
@@ -69,10 +60,12 @@ lookupLocalVar envs var =
 data InterpreterState = InterpreterState
   { globalEnv :: GlobalEnv
   , localEnvs :: [LocalEnv]
+  , funcs :: HashMap Var (Func Expr)
   , errors :: [ErrorMsg]
   , debug :: Bool
   , collectOutput :: Bool
   , output :: [Text]
+  , returnVal :: Expr -- MBR: This could be a Maybe Expr?
   }
   deriving (Eq, Show)
 
@@ -81,10 +74,12 @@ initialInterpreterState =
   InterpreterState
     { globalEnv = GlobalEnv HMap.empty
     , localEnvs = []
+    , funcs = HMap.empty
     , errors = []
     , debug = True
     , collectOutput = True
     , output = []
+    , returnVal = ExprLit LitNil
     }
 
 newtype Interpreter a = Interpreter
@@ -146,9 +141,9 @@ execute stmt = do
     StmtPrint expr -> do
       result <- eval expr
       writeOutLn $ stringify result
-    StmtDecl var expr -> do
+    StmtVarDecl (Var name) expr -> do
       result <- eval expr
-      defVar var result
+      defVar (Var name) result
     StmtExpr expr -> do
       _ <- eval expr
       return ()
@@ -158,14 +153,29 @@ execute stmt = do
       popEnv
     StmtIf cond tBody fBodyOpt -> do
       result <- eval cond
-      if isTruthy result then
-        execute tBody
-      else
-        traverse_ execute fBodyOpt
+      if isTruthy result
+        then execute tBody
+        else traverse_ execute fBodyOpt
       return ()
     StmtWhile cond body ->
       whileM_ (fmap isTruthy . eval $ cond) (execute body)
-
+    StmtFuncDecl name params body -> do
+      -- Retrieve current environment stack
+      gEnv <- gets globalEnv
+      lEnvs <- gets localEnvs
+      -- Create function object with environment stack
+      let func =
+            Func
+              { params = params
+              , body = body
+              , funcGEnv = gEnv
+              , funcLEnvs = lEnvs
+              }
+      -- Add reference to function in current environment
+      defVar name (ExprFunc func)
+    StmtReturn result -> do
+      result' <- eval result
+      modify (\s -> s{returnVal = result'})
 
 pushEnv :: Interpreter ()
 pushEnv = modify (\s -> s{localEnvs = LocalEnv HMap.empty : localEnvs s})
@@ -266,6 +276,61 @@ eval expr = do
       val <- eval right
       assignVar var val
       return val
+    ExprFunc _fn -> return expr
+    ExprCall target args -> do
+      -- Target must evaluate to an `ExprFunc`
+      target' <- eval target
+      case target' of
+        ExprFunc (Func fParams fBody fGEnv fLEnvs) -> do
+          args' <- traverse eval args
+          
+          -- Check if too many arguments provided
+          when (length args' > length fParams)
+            (throwError . ErrorMsg $ "Too many arguments provided.")
+          
+          -- MBR: Looking closer, does Lox spec actually include currying?
+          -- Check if we have enough arguments
+          -- Return a new ExprFunc with fewer parameters and appropriate
+          -- environment for previously provided arguments
+          when (length args' < length fParams) undefined
+
+          -- Define function paramaters in terms of args
+          let callEnv = LocalEnv $ HMap.fromList $ zip fParams args'
+
+          -- We want to restore the environment after the function call
+          -- Note that since values are represented as IORef cells,
+          -- mutation of variables in the saved environments will
+          -- still occur
+          progGEnv <- gets globalEnv
+          progLEnvs <- gets localEnvs
+
+          -- Install function environment
+          modify
+            ( \s ->
+                s
+                  { localEnvs = callEnv : fLEnvs
+                  , globalEnv = fGEnv
+                  }
+            )
+
+          -- Execute statement block associated with function
+          execute fBody
+
+          -- Get function result
+          retVal <- gets returnVal
+          -- Reinstate program environment
+          modify
+            ( \s ->
+                s
+                  { globalEnv = progGEnv
+                  , localEnvs = progLEnvs
+                  }
+            )
+
+          return retVal
+        _ -> throwError . ErrorMsg $ ("Invalid call target: " <> stringify target' <> ".")
+
+
 
 evalUnary :: UnOp -> Expr -> Interpreter Expr
 evalUnary UnNeg x = do

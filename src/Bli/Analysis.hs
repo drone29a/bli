@@ -14,9 +14,12 @@ parseExpr (PExprBin binExpr) = do
 parseExpr (PExprGroup expr) = do
     ExprGroup <$> parseExpr expr
 parseExpr (PExprAsgn (Asgn left right)) = do
-    -- left' <- parseLVal left
     right' <- parseExpr right
     Right . ExprAsgn $ Asgn left right'
+parseExpr (PExprCall target args) = do
+    target' <- parseExpr target
+    args' <- traverse parseExpr args
+    Right $ ExprCall target' args'
 
 -- | Parse an LVal from an expression
 parseLVal :: PExpr -> Either Text LVal

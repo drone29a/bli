@@ -12,7 +12,7 @@ import Text.Megaparsec.Char.Lexer qualified as L
 
 import Bli.Ast
 import Bli.Error (ErrorMsg)
-import Control.Monad (void, when)
+import Control.Monad (void, when, liftM2)
 import Data.Maybe (isNothing, fromMaybe, catMaybes)
 
 type Parser = Parsec ErrorMsg Text
@@ -42,9 +42,14 @@ pNil :: Parser Literal
 pNil =
   LitNil <$ symbol "nil" <?> "nil"
 
+pIdent :: Parser Ident
+pIdent = 
+  Ident . T.pack <$> lexeme ((:) <$> letterChar <*> many alphaNumChar <?> "identifier")
+
 pVar :: Parser Var
-pVar =
-  Var . T.pack <$> lexeme ((:) <$> letterChar <*> many alphaNumChar <?> "variable")
+pVar = do
+  (Ident ident) <- pIdent
+  return $ Var ident
 
 pOperand :: Parser PExpr
 pOperand = try $ do
@@ -60,12 +65,33 @@ pAsgn = try $ do
   -- MBR: Will need to expand to support other tokens that aren't simple variables. 
   --      e.g., myobj(1, "foo").x = 10
   var <- pVar
-  _ <- symbol "="
+  void $ symbol "="
   right <- pExpr
   return . PExprAsgn $ Asgn (LValVar var) right
 
+pCallArgs :: Parser [PExpr]
+pCallArgs = try $ do
+  sepBy pExpr (symbol ",")
+
+pCall :: Parser (PExpr -> PExpr)
+pCall = try $ do
+  void $ symbol "("
+  args <- try pCallArgs
+  void $ symbol ")"
+  return $ \target -> PExprCall target args 
+
+-- | Supports construction of an AST tree by threading
+-- a term through a sequence of functions which augment
+-- the AST.
+-- Useful for supporting syntax such as:
+-- f()().x.y where a sequence of calls and field accesses
+-- occur.
+composeTerms :: Parser a -> Parser [a -> a] -> Parser a
+composeTerms = liftM2 (foldl (flip ($)))
+
 pExpr :: Parser PExpr
-pExpr = try pAsgn <|> try pExpr'
+pExpr = try pAsgn <|> try (composeTerms pExpr' (many pCall))
+-- pExpr = try pAsgn <|> try pExpr' 
 
 pExpr' :: Parser PExpr
 pExpr' =
@@ -111,25 +137,30 @@ pStmt =
   choice
     [ try pStmtExpr
     , StmtPrint <$> try (between (symbol "print" ) (symbol ";") pExpr)
-    , try pStmtDecl
+    , try pStmtVarDecl
     , try pStmtWhile
     , try pStmtFor
-    , StmtBlock <$> try (between (symbol "{") (symbol "}") $ many pStmt)
+    , try pStmtBlock
     , try pStmtIf
+    , try pStmtFuncDecl
     ]
+
+pStmtBlock :: Parser (Stmt PExpr)
+pStmtBlock =
+  StmtBlock <$> try (between (symbol "{") (symbol "}") $ many pStmt)
 
 pStmtExpr :: Parser (Stmt PExpr)
 pStmtExpr = StmtExpr <$> try (pExpr <* symbol ";")
 
-pStmtDecl :: Parser (Stmt PExpr)
-pStmtDecl = do
+pStmtVarDecl :: Parser (Stmt PExpr)
+pStmtVarDecl = do
     void $ symbol "var"
-    var <- pVar
+    name <- pVar
     mVal <- try . optional $ symbol "=" *> pExpr
     void $ symbol ";"
     case mVal of
-      Just val -> return $ StmtDecl var val
-      Nothing -> return $ StmtDecl var (PExprLit LitNil)
+      Just val -> return $ StmtVarDecl name val
+      Nothing -> return $ StmtVarDecl name (PExprLit LitNil)
 
 pStmtWhile :: Parser (Stmt PExpr)
 pStmtWhile = do
@@ -144,7 +175,7 @@ pStmtFor :: Parser (Stmt PExpr)
 pStmtFor = do
   void $ symbol "for"
   void $ symbol "("
-  mInit <- optional $ choice [ try pStmtDecl
+  mInit <- optional $ choice [ try pStmtVarDecl
                              , try pStmtExpr
                              ]
   -- If no variable declaration or assignment
@@ -173,6 +204,20 @@ pStmtIf = do
   trueBody <- pStmt
   falseBody <- try . optional $ symbol "else" *> pStmt
   return $ StmtIf cond trueBody falseBody
+
+pFuncParams :: Parser [Var]
+pFuncParams = 
+  sepBy pVar (symbol ",")
+
+pStmtFuncDecl :: Parser (Stmt PExpr)
+pStmtFuncDecl = do
+  void $ symbol "fun"
+  name <- pVar
+  void $ symbol "("
+  params <- pFuncParams
+  void $ symbol ")"
+  block <- pStmtBlock
+  return $ StmtFuncDecl name params block
 
 pProg :: Parser [Stmt PExpr]
 pProg = many pStmt

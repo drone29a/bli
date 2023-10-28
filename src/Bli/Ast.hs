@@ -1,9 +1,27 @@
 module Bli.Ast where
 
-import Data.Text (Text)
+import Data.Text (Text, intercalate)
 import qualified Data.Text as T
 import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
+import Data.HashMap.Strict (HashMap)
+
+type Mapping = HashMap Var Expr
+
+newtype GlobalEnv = GlobalEnv {gMapping :: Mapping}
+  deriving (Eq, Show, Generic)
+  deriving anyclass (Hashable)
+
+newtype LocalEnv = LocalEnv {lMapping :: Mapping}
+  deriving (Eq, Show, Generic)
+  deriving anyclass (Hashable)
+
+data Func a = Func 
+  { params :: [Var]
+  , body :: Stmt a
+  , funcGEnv :: GlobalEnv
+  , funcLEnvs :: [LocalEnv]
+  } deriving (Eq, Show, Generic, Hashable)
 
 data Literal
   = LitNum Float
@@ -14,6 +32,10 @@ data Literal
 instance Hashable Literal
 
 newtype Var = Var Text
+  deriving (Eq, Show, Generic)
+  deriving anyclass (Hashable)
+
+newtype Ident = Ident Text
   deriving (Eq, Show, Generic)
   deriving anyclass (Hashable)
 
@@ -55,6 +77,7 @@ data PExpr
   | PExprBin (BinExpr PExpr)
   | PExprGroup PExpr
   | PExprAsgn (Asgn LVal PExpr)
+  | PExprCall PExpr [PExpr]
   deriving (Eq, Show, Generic, Hashable)
 
 -- | The `Expr` type is used for a final representation
@@ -68,6 +91,8 @@ data Expr
   | ExprBin (BinExpr Expr)
   | ExprGroup Expr
   | ExprAsgn (Asgn LVal Expr)
+  | ExprCall Expr [Expr]
+  | ExprFunc (Func Expr)
   deriving (Eq, Show, Generic, Hashable)
 
 data UnOp
@@ -92,11 +117,13 @@ data BinOp
 
 data Stmt a
   = StmtExpr a
-  | StmtDecl Var a
+  | StmtVarDecl Var a
   | StmtPrint a
   | StmtBlock [Stmt a]
   | StmtIf a (Stmt a) (Maybe (Stmt a))
   | StmtWhile a (Stmt a)
+  | StmtFuncDecl Var [Var] (Stmt a)
+  | StmtReturn a
   deriving
     ( Eq
     , Show
@@ -136,6 +163,9 @@ stringify (ExprUn (UnExpr op x)) = unOpSym op <> stringify x
 stringify (ExprBin (BinExpr op x y)) = stringify x <> " " <> binOpSym op <> " " <> stringify y
 stringify (ExprVar (Var name)) = name
 stringify (ExprAsgn (Asgn (LValVar (Var name)) expr)) = name <> " = " <> stringify expr
+stringify (ExprCall tgt args) = 
+  stringify tgt <> "(" <> intercalate "," (fmap stringify args) <> ")"
+stringify (ExprFunc _) = "<fn>"
 
 -- | Returns the Lox string symbol that corresponds to the unary operator.
 unOpSym :: UnOp -> Text
