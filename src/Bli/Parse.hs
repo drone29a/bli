@@ -143,6 +143,7 @@ pStmt =
     , try pStmtBlock
     , try pStmtIf
     , try pStmtFuncDecl
+    , try pStmtReturn
     ]
 
 pStmtBlock :: Parser (Stmt PExpr)
@@ -218,6 +219,13 @@ pStmtFuncDecl = do
   void $ symbol ")"
   block <- pStmtBlock
   return $ StmtFuncDecl name params block
+
+pStmtReturn :: Parser (Stmt PExpr)
+pStmtReturn = do
+  void $ symbol "return"
+  val <- pExpr
+  void $ symbol ";"
+  return $ StmtReturn val
 
 pProg :: Parser [Stmt PExpr]
 pProg = many pStmt

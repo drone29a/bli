@@ -78,19 +78,17 @@ spec = do
 
   describe "variable declaration, assignment, and scope" $ do
     it "should support global variable declaration" $ do
-      "var x = 3;"
-        `stateShould` ( \s ->
-                          (HMap.toList . gMapping . globalEnv $ s) `shouldContain` [(Var "x", ExprLit . LitNum $ 3)]
-                      )
+      InterpreterState {globalEnv = GlobalEnv m} <- testInterpret "var x = 3;"
+      m' <- dereference m
+      HMap.toList m' `shouldContain` [(Var "x", ExprLit . LitNum $ 3)]
 
     it "should support redefining a global variable" $ do
-      unlines
+      InterpreterState {globalEnv = GlobalEnv m} <- testInterpret $ unlines
         [ "var x = 1;"
         , "var x = 10;"
         ]
-        `stateShould` ( \s ->
-                          (HMap.toList . gMapping . globalEnv $ s) `shouldContain` [(Var "x", ExprLit . LitNum $ 10)]
-                      )
+      m' <- dereference m
+      HMap.toList m' `shouldContain` [(Var "x", ExprLit . LitNum $ 10)]
 
     it "should support local variable declarations" $ do
       unlines

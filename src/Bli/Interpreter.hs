@@ -14,34 +14,38 @@ import Bli.Ast (
 
 import Prelude hiding (putStr, putStrLn)
 
-import Control.Monad.Except (ExceptT, runExceptT, throwError, MonadError)
+import Control.Monad.Except (ExceptT, runExceptT, throwError, MonadError, catchError)
 import Control.Monad.State (MonadIO (..), StateT (runStateT), gets, modify, MonadState)
 import Data.Foldable (traverse_)
-import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HMap
 import Data.Text.IO (putStr)
-import Control.Monad (when, void)
+import Control.Monad (when, void, unless)
 import Bli.Analysis (parseExpr)
-import Bli.Error (ErrorMsg (ErrorMsg), mkErrorMsg)
+import Bli.Error (BliException (ErrorMsg, Goto), mkErrorMsg)
 import Data.Maybe (mapMaybe)
 import Control.Applicative ((<|>))
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.IO (stdout, hFlush)
 import Control.Monad.Loops (whileM_)
+import Data.IORef (readIORef, newIORef, writeIORef)
 
 -- | Recursively check for the `Var` value in the local
 -- environments. Once the nested local environments are exhausted,
 -- check the global environment.
-lookupVar :: GlobalEnv -> [LocalEnv] -> Var -> Maybe Expr
-lookupVar gEnv lEnvs var =
-  lookupLocalVar lEnvs var <|> HMap.lookup var (gMapping gEnv)
+lookupVar :: GlobalEnv -> [LocalEnv] -> Var -> Interpreter (Maybe Expr)
+lookupVar gEnv lEnvs var = do
+  lVal <- lookupLocalVar lEnvs var
+  gVal <- traverse (liftIO . readIORef) (HMap.lookup var (gMapping gEnv))
+  return $ lVal <|> gVal
 
-lookupLocalVar :: [LocalEnv] -> Var -> Maybe Expr
+lookupLocalVar :: [LocalEnv] -> Var -> Interpreter (Maybe Expr)
 lookupLocalVar envs var =
   case mapMaybe (HMap.lookup var . lMapping) envs of
-    [] -> Nothing
-    x : _ -> Just x
+    [] -> return Nothing
+    x : _ -> do
+      x' <- liftIO $ readIORef x
+      return $ Just x'
 
 -- | There is aloways a base global environment
 -- and there is always an active environment used for
@@ -60,8 +64,7 @@ lookupLocalVar envs var =
 data InterpreterState = InterpreterState
   { globalEnv :: GlobalEnv
   , localEnvs :: [LocalEnv]
-  , funcs :: HashMap Var (Func Expr)
-  , errors :: [ErrorMsg]
+  , errors :: [BliException]
   , debug :: Bool
   , collectOutput :: Bool
   , output :: [Text]
@@ -74,7 +77,6 @@ initialInterpreterState =
   InterpreterState
     { globalEnv = GlobalEnv HMap.empty
     , localEnvs = []
-    , funcs = HMap.empty
     , errors = []
     , debug = True
     , collectOutput = True
@@ -83,14 +85,14 @@ initialInterpreterState =
     }
 
 newtype Interpreter a = Interpreter
-  { unInterpreter :: ExceptT ErrorMsg (StateT InterpreterState IO) a
+  { unInterpreter :: ExceptT BliException (StateT InterpreterState IO) a
   }
   deriving (Functor)
   deriving newtype
     ( Applicative
     , Monad
     , MonadFail
-    , MonadError ErrorMsg
+    , MonadError BliException
     , MonadIO
     , MonadState InterpreterState
     )
@@ -108,7 +110,9 @@ interpret' startState stmts = do
       (traverse_ execute stmts)
       startState
   case result of
-    Left (ErrorMsg err) -> error $ T.unpack err
+    Left e -> case e of 
+      ErrorMsg err -> error $ T.unpack err
+      Goto -> error "Unexpected Goto error."
     Right () -> return finalState
 
 interpretExpr :: Expr -> IO (Either ErrorMsg Expr)
@@ -176,6 +180,7 @@ execute stmt = do
     StmtReturn result -> do
       result' <- eval result
       modify (\s -> s{returnVal = result'})
+      throwError Goto
 
 pushEnv :: Interpreter ()
 pushEnv = modify (\s -> s{localEnvs = LocalEnv HMap.empty : localEnvs s})
@@ -200,7 +205,8 @@ addError errorMsg =
   modify (\s -> s{errors = errorMsg : errors s})
 
 defVar :: Var -> Expr -> Interpreter ()
-defVar var expr =
+defVar var expr = do
+  exprRef <- liftIO $ newIORef expr
   modify
     ( \s ->
         case s of
@@ -208,7 +214,7 @@ defVar var expr =
           -- local environment.
           InterpreterState{localEnvs = (LocalEnv m) : lEnvs} ->
             s
-              { localEnvs = LocalEnv (HMap.insert var expr m) : lEnvs
+              { localEnvs = LocalEnv (HMap.insert var exprRef m) : lEnvs
               }
           -- Handle the case where there is no active
           -- local environment.
@@ -217,7 +223,7 @@ defVar var expr =
             , localEnvs = []
             } ->
               s
-                { globalEnv = GlobalEnv (HMap.insert var expr m)
+                { globalEnv = GlobalEnv (HMap.insert var exprRef m)
                 }
     )
 
@@ -227,30 +233,34 @@ assignVar :: Var -> Expr -> Interpreter ()
 assignVar var@(Var vName) val = do
   gEnv <- gets globalEnv
   lEnvs <- gets localEnvs
-  case assignLocalVar lEnvs var val of
-    Just lEnvs' -> do
-      modify ( \s -> s{localEnvs = lEnvs'})
-    Nothing -> case assignGlobalVar gEnv var val of
-      Just gEnv' -> do
-        modify ( \s -> s{globalEnv = gEnv'})
-      Nothing -> 
-        throwError . ErrorMsg $ 
-          "No variable (" <> vName <> ") found for assignment."
+  assignedLocal <- assignLocalVar lEnvs var val
+  if assignedLocal then
+    return ()
+  else do
+    assignedGlobal <- assignGlobalVar gEnv var val
+    unless assignedGlobal
+      (throwError . ErrorMsg $ "No variable (" <> vName <> ") found for assignment.")
 
-assignLocalVar :: [LocalEnv] -> Var -> Expr -> Maybe [LocalEnv]
+assignLocalVar :: [LocalEnv] -> Var -> Expr -> Interpreter Bool
 assignLocalVar envs var val =
   case remEnvs of
-    x : xs -> Just $ preEnvs ++ [x{lMapping = HMap.insert var val (lMapping x)}] ++ xs
-    _ -> Nothing
+    (LocalEnv m) : _xs -> do
+      case HMap.lookup var m of
+        Just ref -> do 
+          liftIO $ writeIORef ref val
+          return True
+        Nothing -> throwError $ ErrorMsg "Unexpected missing variable reference."
+    _ -> return False
     where
-      (preEnvs, remEnvs) = break (HMap.member var . lMapping) envs
+      (_preEnvs, remEnvs) = break (HMap.member var . lMapping) envs
 
-assignGlobalVar :: GlobalEnv -> Var -> Expr -> Maybe GlobalEnv
+assignGlobalVar :: GlobalEnv -> Var -> Expr -> Interpreter Bool
 assignGlobalVar env var val =
-  if HMap.member var (gMapping env) then
-    Just $ env{gMapping = HMap.insert var val (gMapping env)}
-  else
-    Nothing
+  case HMap.lookup var (gMapping env) of
+    Just ref -> do
+      liftIO $ writeIORef ref val
+      return True
+    Nothing -> return False
 
 -- | Recursively evaluate an expression.
 eval :: Expr -> Interpreter Expr
@@ -263,7 +273,8 @@ eval expr = do
     ExprVar var@(Var name) -> do
       gEnv <- gets globalEnv
       lEnvs <- gets localEnvs
-      case lookupVar gEnv lEnvs var of
+      mVal <- lookupVar gEnv lEnvs var
+      case mVal of
         Just val -> return val
         Nothing ->
           throwError
@@ -295,7 +306,8 @@ eval expr = do
           when (length args' < length fParams) undefined
 
           -- Define function paramaters in terms of args
-          let callEnv = LocalEnv $ HMap.fromList $ zip fParams args'
+          argsRefs <- traverse (liftIO . newIORef) args'
+          let callEnv = LocalEnv $ HMap.fromList $ zip fParams argsRefs
 
           -- We want to restore the environment after the function call
           -- Note that since values are represented as IORef cells,
@@ -314,7 +326,11 @@ eval expr = do
             )
 
           -- Execute statement block associated with function
-          execute fBody
+          catchError (execute fBody) 
+            (\e -> case e of
+              Goto -> return ()
+              -- Rethrow the error if it isn't related to control flow
+              _ -> throwError e)
 
           -- Get function result
           retVal <- gets returnVal

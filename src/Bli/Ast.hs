@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
 module Bli.Ast where
 
 import Data.Text (Text, intercalate)
@@ -5,23 +6,36 @@ import qualified Data.Text as T
 import GHC.Generics (Generic)
 import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
+import Data.IORef (IORef, readIORef)
+import qualified Data.HashMap.Strict as HMap
 
-type Mapping = HashMap Var Expr
+instance Show (IORef a) where
+    show _ = "<ioref>"
+
+type Mapping = HashMap Var (IORef Expr)
 
 newtype GlobalEnv = GlobalEnv {gMapping :: Mapping}
   deriving (Eq, Show, Generic)
-  deriving anyclass (Hashable)
 
 newtype LocalEnv = LocalEnv {lMapping :: Mapping}
   deriving (Eq, Show, Generic)
-  deriving anyclass (Hashable)
+
+-- | Remove IORef wrappers for `Expr` values
+-- in a `Mapping`. Useful for testing and debugging.
+dereference :: Mapping -> IO (HashMap Var Expr)
+dereference m = do
+  let kvs = HMap.toList m
+  HMap.fromList <$> traverse unwrapRef kvs
+    where 
+      unwrapRef :: (Var, IORef Expr) -> IO (Var, Expr)
+      unwrapRef = traverse readIORef
 
 data Func a = Func 
   { params :: [Var]
   , body :: Stmt a
   , funcGEnv :: GlobalEnv
   , funcLEnvs :: [LocalEnv]
-  } deriving (Eq, Show, Generic, Hashable)
+  } deriving (Eq, Show, Generic)
 
 data Literal
   = LitNum Float
@@ -93,7 +107,7 @@ data Expr
   | ExprAsgn (Asgn LVal Expr)
   | ExprCall Expr [Expr]
   | ExprFunc (Func Expr)
-  deriving (Eq, Show, Generic, Hashable)
+  deriving (Eq, Show, Generic)
 
 data UnOp
   = UnNeg
