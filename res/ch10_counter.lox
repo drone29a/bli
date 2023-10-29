@@ -11,3 +11,9 @@ fun makeCounter() {
 var counter = makeCounter();
 counter(); // "1".
 counter(); // "2".
+
+var counter2 = makeCounter();
+counter2(); // "1".
+counter2(); // "2".
+
+counter(); // "3".
