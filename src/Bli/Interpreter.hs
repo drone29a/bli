@@ -292,7 +292,7 @@ eval expr = do
       -- Target must evaluate to an `ExprFunc`
       target' <- eval target
       case target' of
-        ExprFunc (Func fParams fBody fGEnv fLEnvs) -> do
+        ExprFunc f@(Func fParams fBody fGEnv fLEnvs) -> do
           args' <- traverse eval args
           
           -- Check if too many arguments provided
@@ -300,53 +300,61 @@ eval expr = do
             (throwError . ErrorMsg $ "Too many arguments provided.")
           
           -- MBR: Looking closer, does Lox spec actually include currying?
-          -- Check if we have enough arguments
           -- Return a new ExprFunc with fewer parameters and appropriate
           -- environment for previously provided arguments
-          when (length args' < length fParams) undefined
+          if length args' < length fParams then
+            return $ createPartial f args'
+          else do
+            -- Define function paramaters in terms of args
+            argsRefs <- traverse (liftIO . newIORef) args'
+            let callEnv = LocalEnv $ HMap.fromList $ zip fParams argsRefs
 
-          -- Define function paramaters in terms of args
-          argsRefs <- traverse (liftIO . newIORef) args'
-          let callEnv = LocalEnv $ HMap.fromList $ zip fParams argsRefs
+            -- We want to restore the environment after the function call
+            -- Note that since values are represented as IORef cells,
+            -- mutation of variables in the saved environments will
+            -- still occur
+            progGEnv <- gets globalEnv
+            progLEnvs <- gets localEnvs
 
-          -- We want to restore the environment after the function call
-          -- Note that since values are represented as IORef cells,
-          -- mutation of variables in the saved environments will
-          -- still occur
-          progGEnv <- gets globalEnv
-          progLEnvs <- gets localEnvs
+            -- Install function environment
+            modify
+              ( \s ->
+                  s
+                    { localEnvs = callEnv : fLEnvs
+                    , globalEnv = fGEnv
+                    }
+              )
 
-          -- Install function environment
-          modify
-            ( \s ->
-                s
-                  { localEnvs = callEnv : fLEnvs
-                  , globalEnv = fGEnv
-                  }
-            )
+            -- Execute statement block associated with function
+            catchError (execute fBody) 
+              (\e -> case e of
+                Goto -> return ()
+                -- Rethrow the error if it isn't related to control flow
+                _ -> throwError e)
 
-          -- Execute statement block associated with function
-          catchError (execute fBody) 
-            (\e -> case e of
-              Goto -> return ()
-              -- Rethrow the error if it isn't related to control flow
-              _ -> throwError e)
+            -- Get function result
+            retVal <- gets returnVal
+            -- Reinstate program environment
+            modify
+              ( \s ->
+                  s
+                    { globalEnv = progGEnv
+                    , localEnvs = progLEnvs
+                    }
+              )
 
-          -- Get function result
-          retVal <- gets returnVal
-          -- Reinstate program environment
-          modify
-            ( \s ->
-                s
-                  { globalEnv = progGEnv
-                  , localEnvs = progLEnvs
-                  }
-            )
-
-          return retVal
+            return retVal
         _ -> throwError . ErrorMsg $ ("Invalid call target: " <> stringify target' <> ".")
 
-
+-- | Create a partial application of arguments to a function.
+createPartial :: Func Expr -> [Expr] -> Expr
+createPartial f@(Func fParams _fBody fGEnv fLEnvs) args = 
+  ExprFunc (Func pParams pBody fGEnv fLEnvs)
+    where
+      pParams :: [Var]
+      pParams = drop (length args) fParams
+      pBody :: Stmt Expr
+      pBody = StmtReturn (ExprCall (ExprFunc f) (args ++ fmap ExprVar pParams))
 
 evalUnary :: UnOp -> Expr -> Interpreter Expr
 evalUnary UnNeg x = do

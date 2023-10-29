@@ -183,3 +183,40 @@ spec = do
                        , "610\n"
                        , "987\n"
                        ]
+
+  describe "functions and closures" $ do
+    it "should support defining and calling functions" $ do
+      prog <- T.pack <$> readFile "res/ch10_add.lox"
+      prog `shouldOutput` ["6\n"]
+
+    it "should support currying" $ do
+      prog <- T.pack <$> readFile "res/ch10_partial.lox"
+      prog `shouldOutput` [ "6\n"
+                          , "7\n"
+                          , "31\n"
+                          ]
+
+    it "should support returning values from a function" $ do
+      prog <- T.pack <$> readFile "res/ch10_count.lox"
+      prog
+        `shouldOutput` [ "1\n"
+                       , "2\n"
+                       , "3\n"
+                       ]
+
+    it "should support closure environments" $ do
+      prog <- T.pack <$> readFile "res/ch10_counter.lox"
+      prog
+        `shouldOutput` [ "1\n"
+                       , "2\n"
+                       , "1\n"
+                       , "2\n"
+                       , "3\n"
+                       ]
+
+    it "should not pickup new variable definitions" $ do
+      prog <- T.pack <$> readFile "res/ch11_resolve_test.lox"
+      prog
+        `shouldOutput` [ "\"global\"\n"
+                       , "\"global\"\n"
+                       ]
