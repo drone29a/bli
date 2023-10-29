@@ -97,7 +97,7 @@ newtype Interpreter a = Interpreter
     , MonadState InterpreterState
     )
 
-runInterpreter :: Interpreter a -> InterpreterState -> IO (Either ErrorMsg a, InterpreterState)
+runInterpreter :: Interpreter a -> InterpreterState -> IO (Either BliException a, InterpreterState)
 runInterpreter = runStateT . runExceptT . unInterpreter
 
 interpret :: [Stmt Expr] -> IO ()
@@ -115,7 +115,7 @@ interpret' startState stmts = do
       Goto -> error "Unexpected Goto error."
     Right () -> return finalState
 
-interpretExpr :: Expr -> IO (Either ErrorMsg Expr)
+interpretExpr :: Expr -> IO (Either BliException Expr)
 interpretExpr expr = do
   (result, _finalState) <-
     runInterpreter (eval expr)
@@ -200,7 +200,7 @@ process stmts =
       Left _ -> []
       Right stmts' -> stmts'
 
-addError :: ErrorMsg -> Interpreter ()
+addError :: BliException -> Interpreter ()
 addError errorMsg =
   modify (\s -> s{errors = errorMsg : errors s})
 

@@ -11,11 +11,11 @@ import Text.Megaparsec.Char.Lexer (charLiteral)
 import Text.Megaparsec.Char.Lexer qualified as L
 
 import Bli.Ast
-import Bli.Error (ErrorMsg)
+import Bli.Error (BliException)
 import Control.Monad (void, when, liftM2)
 import Data.Maybe (isNothing, fromMaybe, catMaybes)
 
-type Parser = Parsec ErrorMsg Text
+type Parser = Parsec BliException Text
 
 pNum :: Parser Literal
 pNum = LitNum <$> (try float <|> integer) <?> "number literal"

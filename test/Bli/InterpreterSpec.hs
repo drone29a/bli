@@ -5,7 +5,7 @@ module Bli.InterpreterSpec where
 
 import Bli.Analysis (parseExpr)
 import Bli.Ast
-import Bli.Error (ErrorMsg (ErrorMsg))
+import Bli.Error (BliException (ErrorMsg))
 import Bli.Interpreter
 import Bli.Parse (pExpr, pProg)
 
@@ -46,7 +46,7 @@ shouldOutput prog expected = do
   InterpreterState{output} <- testInterpret prog
   reverse output `shouldBe` expected
 
-shouldHaveError :: Text -> ErrorMsg -> Expectation
+shouldHaveError :: Text -> BliException -> Expectation
 shouldHaveError prog errorMsg = do
   InterpreterState{Bli.Interpreter.errors = errorMsgs} <- testInterpret prog
   errorMsgs `shouldContain` [errorMsg]
