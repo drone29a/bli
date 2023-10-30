@@ -167,7 +167,7 @@ execute stmt = do
       -- Retrieve current environment stack
       gEnv <- gets globalEnv
       lEnvs <- gets localEnvs
-      -- Create function object with environment stack
+      -- Create function object (a `Func Expr` value) with environment stack
       let func =
             Func
               { params = params
@@ -289,39 +289,44 @@ eval expr = do
       return val
     ExprFunc _fn -> return expr
     ExprCall target args -> do
-      -- Target must evaluate to an `ExprFunc`
+      -- Evaluate the call target
       target' <- eval target
+      -- Target must evaluate to an `ExprFunc`
       case target' of
         ExprFunc f@(Func fParams fBody fGEnv fLEnvs) -> do
+          -- Evaluate the arguments
           args' <- traverse eval args
           
           -- Check if too many arguments provided
           when (length args' > length fParams)
             (throwError . ErrorMsg $ "Too many arguments provided.")
           
-          -- MBR: Looking closer, does Lox spec actually include currying?
-          -- Return a new ExprFunc with fewer parameters and appropriate
-          -- environment for previously provided arguments
+          -- Check if too few arguments are provided
           if length args' < length fParams then
+            -- Return a new ExprFunc with fewer parameters and appropriate
+            -- environment for previously provided arguments
             return $ createPartial f args'
+          
+          -- All arguments were provided
           else do
-            -- Define function paramaters in terms of args
+            -- Wrap arguments inside `IORef`s to place them in an environment
             argsRefs <- traverse (liftIO . newIORef) args'
+           
+            -- Create an environment to link the formal parameters with
+            -- function call arguments
             let callEnv = LocalEnv $ HMap.fromList $ zip fParams argsRefs
 
-            -- We want to restore the environment after the function call
-            -- Note that since values are represented as IORef cells,
-            -- mutation of variables in the saved environments will
-            -- still occur
+            -- We want to restore the environment after the function call,
+            -- so save global and local environments at time of function call
             progGEnv <- gets globalEnv
             progLEnvs <- gets localEnvs
 
-            -- Install function environment
+            -- Install function environment into interpreter state
             modify
               ( \s ->
                   s
-                    { localEnvs = callEnv : fLEnvs
-                    , globalEnv = fGEnv
+                    { globalEnv = fGEnv
+                    , localEnvs = callEnv : fLEnvs
                     }
               )
 
@@ -334,7 +339,7 @@ eval expr = do
 
             -- Get function result
             retVal <- gets returnVal
-            -- Reinstate program environment
+            -- Reinstate program environment in interpreter state
             modify
               ( \s ->
                   s
@@ -347,6 +352,9 @@ eval expr = do
         _ -> throwError . ErrorMsg $ ("Invalid call target: " <> stringify target' <> ".")
 
 -- | Create a partial application of arguments to a function.
+-- Given a function and some arguments for the function, create
+-- an `ExprFunc` wrapper that calls the original function using
+-- the partially-applied arguments.
 createPartial :: Func Expr -> [Expr] -> Expr
 createPartial f@(Func fParams _fBody fGEnv fLEnvs) args = 
   ExprFunc (Func pParams pBody fGEnv fLEnvs)

@@ -189,7 +189,7 @@ spec = do
       prog <- T.pack <$> readFile "res/ch10_add.lox"
       prog `shouldOutput` ["6\n"]
 
-    it "should support currying" $ do
+    it "should support partial application" $ do
       prog <- T.pack <$> readFile "res/ch10_partial.lox"
       prog `shouldOutput` [ "6\n"
                           , "7\n"
