@@ -137,6 +137,7 @@ data Stmt a
   | StmtIf a (Stmt a) (Maybe (Stmt a))
   | StmtWhile a (Stmt a)
   | StmtFuncDecl Var [Var] (Stmt a)
+  | StmtClassDecl Var [Stmt a]
   | StmtReturn a
   deriving
     ( Eq

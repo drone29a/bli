@@ -220,6 +220,24 @@ pStmtFuncDecl = do
   block <- pStmtBlock
   return $ StmtFuncDecl name params block
 
+pStmtMethodDecl :: Parser (Stmt PExpr)
+pStmtMethodDecl = do
+  name <- pVar
+  void $ symbol "("
+  params <- pFuncParams
+  void $ symbol ")"
+  block <- pStmtBlock
+  return $ StmtFuncDecl name params block
+
+pStmtClassDecl :: Parser (Stmt PExpr)
+pStmtClassDecl = do
+  void $ symbol "class"
+  name <- pVar
+  methods <- try (between (symbol "{") (symbol "}") $ many pStmtMethodDecl)
+  return $ StmtClassDecl name methods
+
+
+
 pStmtReturn :: Parser (Stmt PExpr)
 pStmtReturn = do
   void $ symbol "return"
