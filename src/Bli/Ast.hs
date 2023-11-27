@@ -78,7 +78,9 @@ data UnExpr a = UnExpr UnOp a
 data Asgn a b = Asgn a b
   deriving (Eq, Show, Functor, Generic, Hashable)
 
-newtype LVal = LValVar Var
+data LVal a
+  = LValVar Var
+  | LValSet a
   deriving (Eq, Show, Generic)
   deriving anyclass (Hashable)
 
@@ -90,8 +92,10 @@ data PExpr
   | PExprUn (UnExpr PExpr)
   | PExprBin (BinExpr PExpr)
   | PExprGroup PExpr
-  | PExprAsgn (Asgn LVal PExpr)
+  | PExprAsgn (Asgn (LVal PExpr) PExpr)
   | PExprCall PExpr [PExpr]
+  | PExprGet PExpr Var
+  | PExprSet PExpr Var
   deriving (Eq, Show, Generic, Hashable)
 
 -- | The `Expr` type is used for a final representation
@@ -104,7 +108,7 @@ data Expr
   | ExprUn (UnExpr Expr)
   | ExprBin (BinExpr Expr)
   | ExprGroup Expr
-  | ExprAsgn (Asgn LVal Expr)
+  | ExprAsgn (Asgn (LVal Expr) Expr)
   | ExprCall Expr [Expr]
   | ExprFunc (Func Expr)
   deriving (Eq, Show, Generic)

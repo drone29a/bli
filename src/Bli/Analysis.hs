@@ -14,15 +14,18 @@ parseExpr (PExprBin binExpr) = do
 parseExpr (PExprGroup expr) = do
     ExprGroup <$> parseExpr expr
 parseExpr (PExprAsgn (Asgn left right)) = do
+    left' <- case left of
+        -- LValSet x -> LValSet <$> parseExpr x
+        LValVar x -> return $ LValVar x
     right' <- parseExpr right
-    Right . ExprAsgn $ Asgn left right'
+    Right . ExprAsgn $ Asgn left' right'
 parseExpr (PExprCall target args) = do
     target' <- parseExpr target
     args' <- traverse parseExpr args
     Right $ ExprCall target' args'
 
 -- | Parse an LVal from an expression
-parseLVal :: PExpr -> Either Text LVal
+parseLVal :: PExpr -> Either Text (LVal Expr)
 parseLVal (PExprVar var) = Right $ LValVar var
 parseLVal expr = Left $ "The expression \"" <> T.pack (show expr) <> "\" is not an l-value."
 

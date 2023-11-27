@@ -14,6 +14,7 @@ import Bli.Ast
 import Bli.Error (BliException)
 import Control.Monad (void, when, liftM2)
 import Data.Maybe (isNothing, fromMaybe, catMaybes)
+import Control.Applicative ((<**>))
 
 type Parser = Parsec BliException Text
 
@@ -57,17 +58,34 @@ pOperand = try $ do
     [ PExprLit <$> try (pNum <|> pStr <|> pBool <|> pNil)
     , PExprGroup <$> try (between (symbol "(") (symbol ")") pExpr)
     , PExprVar <$> try pVar
-    , try pAsgn
     ]
 
 pAsgn :: Parser PExpr
 pAsgn = try $ do
-  -- MBR: Will need to expand to support other tokens that aren't simple variables. 
-  --      e.g., myobj(1, "foo").x = 10
-  var <- pVar
+  lval <-
+    choice
+      [ LValSet
+          <$> try
+            ( composeTerms
+                (PExprVar <$> pVar)
+                (many (pCall <|> pGet))
+                <**> pSet
+            )
+      , LValVar <$> try pVar
+      ]
   void $ symbol "="
-  right <- pExpr
-  return . PExprAsgn $ Asgn (LValVar var) right
+  rval <- pExpr
+  return . PExprAsgn $ Asgn lval rval
+
+-- pAsgn' :: Parser PExpr
+-- pAsgn' = try $ do
+--   lval <- choice 
+--     [ LValSet <$> try (composeTerms (PExprVar <$> pVar) (many (pCall <|> pGet)) <**> pSet)
+--     , LValVar <$> try pVar
+--     ]
+--   void $ symbol "="
+--   rval <- pExpr
+--   return $ PExprAsgn (Asgn lval rval)
 
 pCallArgs :: Parser [PExpr]
 pCallArgs = try $ do
@@ -78,8 +96,35 @@ pCall = try $ do
   void $ symbol "("
   args <- try pCallArgs
   void $ symbol ")"
-  return $ \target -> PExprCall target args 
+  return $ \target -> PExprCall target args
 
+pGet :: Parser (PExpr -> PExpr)
+pGet = try $ do
+  void $ symbol "."
+  prop <- pVar
+  return $ \obj -> PExprGet obj prop
+
+pSet :: Parser (PExpr -> PExpr)
+pSet = try $ do
+  void $ symbol "."
+  prop <- pVar
+  return $ \obj -> PExprSet obj prop
+
+-- pGet' :: Parser (PExpr -> PExpr)
+-- pGet' = try $ do 
+--   void $ symbol "."
+--   -- Get and Set parse the same, only a following
+--   -- "=" distinguishes them
+--   property <- pVar <* notFollowedBy (symbol "=")
+--   return $ \obj -> PExprGet obj property
+
+-- pSet' :: Parser (PExpr -> PExpr)
+-- pSet' = try $ do
+--   void $ symbol "."
+--   property <- pVar
+--   void $ lookAhead (symbol "=")
+--   return $ \obj -> PExprSet obj property
+  
 -- | Supports construction of an AST tree by threading
 -- a term through a sequence of functions which augment
 -- the AST.
@@ -90,8 +135,7 @@ composeTerms :: Parser a -> Parser [a -> a] -> Parser a
 composeTerms = liftM2 (foldl (flip ($)))
 
 pExpr :: Parser PExpr
-pExpr = try pAsgn <|> try (composeTerms pExpr' (many pCall))
--- pExpr = try pAsgn <|> try pExpr' 
+pExpr = try pAsgn <|> try (composeTerms pExpr' (many (pCall <|> pGet))) 
 
 pExpr' :: Parser PExpr
 pExpr' =
@@ -235,8 +279,6 @@ pStmtClassDecl = do
   name <- pVar
   methods <- try (between (symbol "{") (symbol "}") $ many pStmtMethodDecl)
   return $ StmtClassDecl name methods
-
-
 
 pStmtReturn :: Parser (Stmt PExpr)
 pStmtReturn = do
