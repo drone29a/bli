@@ -1,5 +1,17 @@
-fun add(a, b, c) {
-  print a + b + c;
+var a = "hi";
+
+{
+    var x = 100;
+
+    fun add(a, b, c) {
+
+        print a + b + c;
+        print x;
+    }
 }
 
-add(1, 2, 3);
+var z = "end";
+
+{ 
+    add(1, 2, 3);
+}

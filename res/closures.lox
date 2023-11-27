@@ -1,0 +1,18 @@
+fun mkCounter() {
+    var counter = 0;
+
+    fun increment() {
+        var result = counter;
+        counter = counter + 1;
+        return result;
+    }
+
+    return increment;
+}
+
+var c1 = mkCounter();
+print c1();
+var c2 = mkCounter();
+print c2();
+print c1();
+print c1();
