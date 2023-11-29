@@ -1,5 +1,5 @@
 module Bli.Analysis where
-import Bli.Ast (Expr (..), PExpr (..), Asgn (..), LVal (LValVar), Stmt)
+import Bli.Ast (Expr (..), PExpr (..), Asgn (..), LVal (LValVar, LValSet), Stmt)
 import Data.Text ( Text )
 import Data.Text qualified as T
 
@@ -15,7 +15,7 @@ parseExpr (PExprGroup expr) = do
     ExprGroup <$> parseExpr expr
 parseExpr (PExprAsgn (Asgn left right)) = do
     left' <- case left of
-        -- LValSet x -> LValSet <$> parseExpr x
+        LValSet x -> LValSet <$> parseExpr x
         LValVar x -> return $ LValVar x
     right' <- parseExpr right
     Right . ExprAsgn $ Asgn left' right'

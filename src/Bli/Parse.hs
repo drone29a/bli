@@ -101,7 +101,7 @@ pCall = try $ do
 pGet :: Parser (PExpr -> PExpr)
 pGet = try $ do
   void $ symbol "."
-  prop <- pVar
+  prop <- pVar <* notFollowedBy (symbol "=")
   return $ \obj -> PExprGet obj prop
 
 pSet :: Parser (PExpr -> PExpr)

@@ -9,7 +9,7 @@ import Bli.Ast (
   Stmt (..),
   UnOp (..),
   Var (..),
-  stringify, PExpr, UnExpr (UnExpr), BinExpr (BinExpr), GlobalEnv (..), LocalEnv (..), Func (..),
+  stringify, PExpr, UnExpr (UnExpr), BinExpr (BinExpr), GlobalEnv (..), LocalEnv (..), Func (..), Obj (Obj), Class (Class),
  )
 
 import Prelude hiding (putStr, putStrLn)
@@ -29,6 +29,7 @@ import qualified Data.Text as T
 import System.IO (stdout, hFlush)
 import Control.Monad.Loops (whileM_)
 import Data.IORef (readIORef, newIORef, writeIORef)
+import Data.Either.Validation (_Failure)
 
 -- | Recursively check for the `Var` value in the local
 -- environments. Once the nested local environments are exhausted,
@@ -177,6 +178,19 @@ execute stmt = do
               }
       -- Add reference to function in current environment
       defVar name (ExprFunc func)
+    StmtClassDecl name methods -> do
+      gEnv <- gets globalEnv
+      lEnvs <- gets localEnvs
+      let klass = Class name methods
+          obj = Obj HMap.empty klass
+          ctor = 
+            Func 
+              { params = [] 
+              , body = StmtReturn (ExprObj obj)
+              , funcGEnv = gEnv
+              , funcLEnvs = lEnvs
+              }
+      defVar name (ExprFunc ctor)
     StmtReturn result -> do
       result' <- eval result
       modify (\s -> s{returnVal = result'})

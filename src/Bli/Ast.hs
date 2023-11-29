@@ -37,6 +37,16 @@ data Func a = Func
   , funcLEnvs :: [LocalEnv]
   } deriving (Eq, Show, Generic)
 
+data Class a = Class
+  { name :: Var
+  , methods :: [Stmt a]
+  } deriving (Eq, Show, Generic)
+
+data Obj a = Obj
+  { props :: Mapping
+  , klass :: Class a
+  } deriving (Eq, Show, Generic)
+
 data Literal
   = LitNum Float
   | LitStr Text
@@ -111,6 +121,7 @@ data Expr
   | ExprAsgn (Asgn (LVal Expr) Expr)
   | ExprCall Expr [Expr]
   | ExprFunc (Func Expr)
+  | ExprObj (Obj Expr)
   deriving (Eq, Show, Generic)
 
 data UnOp
