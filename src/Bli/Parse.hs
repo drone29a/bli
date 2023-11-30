@@ -52,22 +52,22 @@ pVar = do
   (Ident ident) <- pIdent
   return $ Var ident
 
-pOperand :: Parser PExpr
+pOperand :: Parser Expr
 pOperand = try $ do
   choice
-    [ PExprLit <$> try (pNum <|> pStr <|> pBool <|> pNil)
-    , PExprGroup <$> try (between (symbol "(") (symbol ")") pExpr)
-    , PExprVar <$> try pVar
+    [ ExprLit <$> try (pNum <|> pStr <|> pBool <|> pNil)
+    , ExprGroup <$> try (between (symbol "(") (symbol ")") pExpr)
+    , ExprVar <$> try pVar
     ]
 
-pAsgn :: Parser PExpr
+pAsgn :: Parser Expr
 pAsgn = try $ do
   lval <-
     choice
       [ LValSet
           <$> try
             ( composeTerms
-                (PExprVar <$> pVar)
+                (ExprVar <$> pVar)
                 (many (pCall <|> pGet))
                 <**> pSet
             )
@@ -75,7 +75,7 @@ pAsgn = try $ do
       ]
   void $ symbol "="
   rval <- pExpr
-  return . PExprAsgn $ Asgn lval rval
+  return . ExprAsgn $ Asgn lval rval
 
 -- pAsgn' :: Parser PExpr
 -- pAsgn' = try $ do
@@ -87,28 +87,28 @@ pAsgn = try $ do
 --   rval <- pExpr
 --   return $ PExprAsgn (Asgn lval rval)
 
-pCallArgs :: Parser [PExpr]
+pCallArgs :: Parser [Expr]
 pCallArgs = try $ do
   sepBy pExpr (symbol ",")
 
-pCall :: Parser (PExpr -> PExpr)
+pCall :: Parser (Expr -> Expr)
 pCall = try $ do
   void $ symbol "("
   args <- try pCallArgs
   void $ symbol ")"
-  return $ \target -> PExprCall target args
+  return $ \target -> ExprCall target args
 
-pGet :: Parser (PExpr -> PExpr)
+pGet :: Parser (Expr -> Expr)
 pGet = try $ do
   void $ symbol "."
   prop <- pVar <* notFollowedBy (symbol "=")
-  return $ \obj -> PExprGet obj prop
+  return $ \obj -> ExprGet obj prop
 
-pSet :: Parser (PExpr -> PExpr)
+pSet :: Parser (Expr -> Expr)
 pSet = try $ do
   void $ symbol "."
   prop <- pVar
-  return $ \obj -> PExprSet obj prop
+  return $ \obj -> ExprSet obj prop
 
 -- pGet' :: Parser (PExpr -> PExpr)
 -- pGet' = try $ do 
@@ -134,49 +134,49 @@ pSet = try $ do
 composeTerms :: Parser a -> Parser [a -> a] -> Parser a
 composeTerms = liftM2 (foldl (flip ($)))
 
-pExpr :: Parser PExpr
+pExpr :: Parser Expr
 pExpr = try pAsgn <|> try (composeTerms pExpr' (many (pCall <|> pGet))) 
 
-pExpr' :: Parser PExpr
+pExpr' :: Parser Expr
 pExpr' =
   makeExprParser
     pOperand
     [
-      [ prefix "-" (PExprUn . UnExpr UnNeg)
-      , prefix "!" (PExprUn . UnExpr UnNot)
+      [ prefix "-" (ExprUn . UnExpr UnNeg)
+      , prefix "!" (ExprUn . UnExpr UnNot)
       ]
     ,
-      [ binary "*" (\x y -> PExprBin $ BinExpr BinMul x y)
-      , binary "/" (\x y -> PExprBin $ BinExpr BinDiv x y)
+      [ binary "*" (\x y -> ExprBin $ BinExpr BinMul x y)
+      , binary "/" (\x y -> ExprBin $ BinExpr BinDiv x y)
       ]
     ,
-      [ binary "+" (\x y -> PExprBin $ BinExpr BinAdd x y)
-      , binary "-" (\x y -> PExprBin $ BinExpr BinSub x y)
+      [ binary "+" (\x y -> ExprBin $ BinExpr BinAdd x y)
+      , binary "-" (\x y -> ExprBin $ BinExpr BinSub x y)
       ]
     ,
-      [ binary "<=" (\x y -> PExprBin $ BinExpr BinLte x y)
-      , binary "<" (\x y -> PExprBin $ BinExpr BinLt x y)
-      , binary ">=" (\x y -> PExprBin $ BinExpr BinGte x y)
-      , binary ">" (\x y -> PExprBin $ BinExpr BinGt x y)
+      [ binary "<=" (\x y -> ExprBin $ BinExpr BinLte x y)
+      , binary "<" (\x y -> ExprBin $ BinExpr BinLt x y)
+      , binary ">=" (\x y -> ExprBin $ BinExpr BinGte x y)
+      , binary ">" (\x y -> ExprBin $ BinExpr BinGt x y)
       ]
     ,
-      [ binary "==" (\x y -> PExprBin $ BinExpr BinEq x y)
-      , binary "!=" (\x y -> PExprBin $ BinExpr BinNeq x y)
+      [ binary "==" (\x y -> ExprBin $ BinExpr BinEq x y)
+      , binary "!=" (\x y -> ExprBin $ BinExpr BinNeq x y)
       ]
     ,
-      [ binary "and" (\x y -> PExprBin $ BinExpr BinLogAnd x y)
+      [ binary "and" (\x y -> ExprBin $ BinExpr BinLogAnd x y)
       ]
     ,
-      [ binary "or" (\x y -> PExprBin $ BinExpr BinLogOr x y)
+      [ binary "or" (\x y -> ExprBin $ BinExpr BinLogOr x y)
       ]
     ]
   where
-    binary :: Text -> (PExpr -> PExpr -> PExpr) -> Operator Parser PExpr
+    binary :: Text -> (Expr -> Expr -> Expr) -> Operator Parser Expr
     binary op ctor = InfixL $ ctor <$ symbol op
-    prefix :: Text -> (PExpr -> PExpr) -> Operator Parser PExpr
+    prefix :: Text -> (Expr -> Expr) -> Operator Parser Expr
     prefix op ctor = Prefix $ ctor <$ symbol op
 
-pStmt :: Parser (Stmt PExpr)
+pStmt :: Parser (Stmt Expr)
 pStmt =
   choice
     [ try pStmtExpr
@@ -190,14 +190,14 @@ pStmt =
     , try pStmtReturn
     ]
 
-pStmtBlock :: Parser (Stmt PExpr)
+pStmtBlock :: Parser (Stmt Expr)
 pStmtBlock =
   StmtBlock <$> try (between (symbol "{") (symbol "}") $ many pStmt)
 
-pStmtExpr :: Parser (Stmt PExpr)
+pStmtExpr :: Parser (Stmt Expr)
 pStmtExpr = StmtExpr <$> try (pExpr <* symbol ";")
 
-pStmtVarDecl :: Parser (Stmt PExpr)
+pStmtVarDecl :: Parser (Stmt Expr)
 pStmtVarDecl = do
     void $ symbol "var"
     name <- pVar
@@ -205,9 +205,9 @@ pStmtVarDecl = do
     void $ symbol ";"
     case mVal of
       Just val -> return $ StmtVarDecl name val
-      Nothing -> return $ StmtVarDecl name (PExprLit LitNil)
+      Nothing -> return $ StmtVarDecl name (ExprLit LitNil)
 
-pStmtWhile :: Parser (Stmt PExpr)
+pStmtWhile :: Parser (Stmt Expr)
 pStmtWhile = do
   void $ symbol "while"
   void $ symbol "("
@@ -216,7 +216,7 @@ pStmtWhile = do
   body <- pStmt
   return $ StmtWhile cond body
 
-pStmtFor :: Parser (Stmt PExpr)
+pStmtFor :: Parser (Stmt Expr)
 pStmtFor = do
   void $ symbol "for"
   void $ symbol "("
@@ -237,10 +237,10 @@ pStmtFor = do
   let whileBody = case mIncr of
         Just incr -> StmtBlock [body, StmtExpr incr]
         Nothing -> body
-      while = StmtWhile (fromMaybe (PExprLit (LitBool True)) mCond) whileBody
+      while = StmtWhile (fromMaybe (ExprLit (LitBool True)) mCond) whileBody
   return $ StmtBlock (catMaybes [mInit, Just while])
   
-pStmtIf :: Parser (Stmt PExpr)
+pStmtIf :: Parser (Stmt Expr)
 pStmtIf = do
   void $ symbol "if"
   void $ symbol "("
@@ -254,7 +254,7 @@ pFuncParams :: Parser [Var]
 pFuncParams = 
   sepBy pVar (symbol ",")
 
-pStmtFuncDecl :: Parser (Stmt PExpr)
+pStmtFuncDecl :: Parser (Stmt Expr)
 pStmtFuncDecl = do
   void $ symbol "fun"
   name <- pVar
@@ -264,7 +264,7 @@ pStmtFuncDecl = do
   block <- pStmtBlock
   return $ StmtFuncDecl name params block
 
-pStmtMethodDecl :: Parser (Stmt PExpr)
+pStmtMethodDecl :: Parser (Stmt Expr)
 pStmtMethodDecl = do
   name <- pVar
   void $ symbol "("
@@ -273,21 +273,21 @@ pStmtMethodDecl = do
   block <- pStmtBlock
   return $ StmtFuncDecl name params block
 
-pStmtClassDecl :: Parser (Stmt PExpr)
+pStmtClassDecl :: Parser (Stmt Expr)
 pStmtClassDecl = do
   void $ symbol "class"
   name <- pVar
   methods <- try (between (symbol "{") (symbol "}") $ many pStmtMethodDecl)
   return $ StmtClassDecl name methods
 
-pStmtReturn :: Parser (Stmt PExpr)
+pStmtReturn :: Parser (Stmt Expr)
 pStmtReturn = do
   void $ symbol "return"
   val <- pExpr
   void $ symbol ";"
   return $ StmtReturn val
 
-pProg :: Parser [Stmt PExpr]
+pProg :: Parser [Stmt Expr]
 pProg = many pStmt
 
 spaceConsumer :: Parser ()

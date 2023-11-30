@@ -94,20 +94,6 @@ data LVal a
   deriving (Eq, Show, Generic)
   deriving anyclass (Hashable)
 
--- | The `PExpr` type is used by `Bli.Parse` to construct
--- an initial Lox AST according to the capabilities of the parser.
-data PExpr 
-  = PExprLit Literal
-  | PExprVar Var
-  | PExprUn (UnExpr PExpr)
-  | PExprBin (BinExpr PExpr)
-  | PExprGroup PExpr
-  | PExprAsgn (Asgn (LVal PExpr) PExpr)
-  | PExprCall PExpr [PExpr]
-  | PExprGet PExpr Var
-  | PExprSet PExpr Var
-  deriving (Eq, Show, Generic, Hashable)
-
 -- | The `Expr` type is used for a final representation
 -- of Lox code. If additional post-procesing after parsing
 -- is required, it can be implemented as a translation
@@ -122,6 +108,8 @@ data Expr
   | ExprCall Expr [Expr]
   | ExprFunc (Func Expr)
   | ExprObj (Obj Expr)
+  | ExprGet Expr Var
+  | ExprSet Expr Var
   deriving (Eq, Show, Generic)
 
 data UnOp
@@ -196,6 +184,10 @@ stringify (ExprAsgn (Asgn (LValVar (Var name)) expr)) = name <> " = " <> stringi
 stringify (ExprCall tgt args) = 
   stringify tgt <> "(" <> intercalate "," (fmap stringify args) <> ")"
 stringify (ExprFunc _) = "<fn>"
+stringify (ExprObj _) = "<obj>"
+stringify (ExprGet _ _) = "<get>"
+stringify (ExprSet _ _) = "<set>"
+stringify (ExprAsgn _) = "<asgn>"
 
 -- | Returns the Lox string symbol that corresponds to the unary operator.
 unOpSym :: UnOp -> Text

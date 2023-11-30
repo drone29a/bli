@@ -5,7 +5,6 @@ import Bli.Interpreter (
   debug,
   initialInterpreterState,
   interpret',
-  process,
  )
 import Bli.Parse (pProg)
 
@@ -35,14 +34,13 @@ execute path = do
   input <- readFile path
   case parse pProg path input of
     Right stmts -> do
-      let stmts' = process stmts
       void $
         interpret'
           initialInterpreterState
             { collectOutput = False
             , debug = False
             }
-          stmts'
+          stmts
     Left err -> do
       print err
 

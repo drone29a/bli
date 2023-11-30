@@ -4,12 +4,12 @@ import Bli.Ast (
   Asgn (..),
   BinOp (..),
   Expr (..),
-  LVal (LValVar),
+  LVal (LValVar, LValSet),
   Literal (..),
   Stmt (..),
   UnOp (..),
   Var (..),
-  stringify, PExpr, UnExpr (UnExpr), BinExpr (BinExpr), GlobalEnv (..), LocalEnv (..), Func (..), Obj (Obj), Class (Class),
+  stringify, UnExpr (UnExpr), BinExpr (BinExpr), GlobalEnv (..), LocalEnv (..), Func (..), Obj (Obj), Class (Class),
  )
 
 import Prelude hiding (putStr, putStrLn)
@@ -20,7 +20,6 @@ import Data.Foldable (traverse_)
 import Data.HashMap.Strict qualified as HMap
 import Data.Text.IO (putStr)
 import Control.Monad (when, void, unless)
-import Bli.Analysis (parseExpr)
 import Bli.Error (BliException (ErrorMsg, Goto), mkErrorMsg)
 import Data.Maybe (mapMaybe)
 import Control.Applicative ((<|>))
@@ -29,7 +28,6 @@ import qualified Data.Text as T
 import System.IO (stdout, hFlush)
 import Control.Monad.Loops (whileM_)
 import Data.IORef (readIORef, newIORef, writeIORef)
-import Data.Either.Validation (_Failure)
 
 -- | Recursively check for the `Var` value in the local
 -- environments. Once the nested local environments are exhausted,
@@ -207,13 +205,6 @@ popEnv = do
     _headEnv : restEnvs ->
       modify (\s -> s{localEnvs = restEnvs})
 
-process :: [Stmt PExpr] -> [Stmt Expr]
-process stmts =
-  let result = traverse (traverse parseExpr) stmts in
-    case result of
-      Left _ -> []
-      Right stmts' -> stmts'
-
 addError :: BliException -> Interpreter ()
 addError errorMsg =
   modify (\s -> s{errors = errorMsg : errors s})
@@ -276,6 +267,9 @@ assignGlobalVar env var val =
       return True
     Nothing -> return False
 
+assignObjField :: Expr -> Expr -> Interpreter ()
+assignObjField = undefined
+
 -- | Recursively evaluate an expression.
 eval :: Expr -> Interpreter Expr
 eval expr = do
@@ -300,6 +294,10 @@ eval expr = do
     ExprAsgn (Asgn (LValVar var) right) -> do
       val <- eval right
       assignVar var val
+      return val
+    ExprAsgn (Asgn (LValSet set) right) -> do
+      val <- eval right
+      assignObjField set val
       return val
     ExprFunc _fn -> return expr
     ExprCall target args -> do
@@ -364,6 +362,11 @@ eval expr = do
 
             return retVal
         _ -> throwError . ErrorMsg $ ("Invalid call target: " <> stringify target' <> ".")
+    ExprObj _ -> return expr
+    ExprGet obj field -> 
+      -- Lookup value in object field
+      undefined
+    ExprSet _ _ -> return expr
 
 -- | Create a partial application of arguments to a function.
 -- Given a function and some arguments for the function, create
