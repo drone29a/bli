@@ -159,6 +159,7 @@ pStmt =
     , try pStmtBlock
     , try pStmtIf
     , try pStmtFuncDecl
+    , try pStmtClassDecl
     , try pStmtReturn
     ]
 
