@@ -99,10 +99,10 @@ newtype Interpreter a = Interpreter
 runInterpreter :: Interpreter a -> InterpreterState -> IO (Either BliException a, InterpreterState)
 runInterpreter = runStateT . runExceptT . unInterpreter
 
-interpret :: [Stmt Expr] -> IO ()
+interpret :: [Stmt] -> IO ()
 interpret = void . interpret' initialInterpreterState
 
-interpret' :: InterpreterState -> [Stmt Expr] -> IO InterpreterState
+interpret' :: InterpreterState -> [Stmt] -> IO InterpreterState
 interpret' startState stmts = do
   (result, finalState) <-
     runInterpreter
@@ -136,7 +136,7 @@ writeOut str = do
 writeOutLn :: Text -> Interpreter ()
 writeOutLn str = writeOut $ str <> "\n"
 
-execute :: Stmt Expr -> Interpreter ()
+execute :: Stmt -> Interpreter ()
 execute stmt = do
   debugOn <- gets debug
   when debugOn (liftIO $ print stmt)
@@ -372,13 +372,13 @@ eval expr = do
 -- Given a function and some arguments for the function, create
 -- an `ExprFunc` wrapper that calls the original function using
 -- the partially-applied arguments.
-createPartial :: Func Expr -> [Expr] -> Expr
+createPartial :: Func -> [Expr] -> Expr
 createPartial f@(Func fParams _fBody fGEnv fLEnvs) args = 
   ExprFunc (Func pParams pBody fGEnv fLEnvs)
     where
       pParams :: [Var]
       pParams = drop (length args) fParams
-      pBody :: Stmt Expr
+      pBody :: Stmt
       pBody = StmtReturn (ExprCall (ExprFunc f) (args ++ fmap ExprVar pParams))
 
 evalUnary :: UnOp -> Expr -> Interpreter Expr

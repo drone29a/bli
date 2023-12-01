@@ -30,21 +30,21 @@ dereference m = do
       unwrapRef :: (Var, IORef Expr) -> IO (Var, Expr)
       unwrapRef = traverse readIORef
 
-data Func a = Func 
+data Func = Func 
   { params :: [Var]
-  , body :: Stmt a
+  , body :: Stmt
   , funcGEnv :: GlobalEnv
   , funcLEnvs :: [LocalEnv]
   } deriving (Eq, Show, Generic)
 
-data Class a = Class
+data Class = Class
   { name :: Var
-  , methods :: [Stmt a]
+  , methods :: [Stmt]
   } deriving (Eq, Show, Generic)
 
-data Obj a = Obj
+data Obj = Obj
   { props :: Mapping
-  , klass :: Class a
+  , klass :: Class
   } deriving (Eq, Show, Generic)
 
 data Literal
@@ -88,11 +88,10 @@ data UnExpr a = UnExpr UnOp a
 data Asgn a b = Asgn a b
   deriving (Eq, Show, Functor, Generic, Hashable)
 
-data LVal a
+data LVal
   = LValVar Var
-  | LValSet a
+  | LValSet Expr Var
   deriving (Eq, Show, Generic)
-  deriving anyclass (Hashable)
 
 -- | The `Expr` type is used for a final representation
 -- of Lox code. If additional post-procesing after parsing
@@ -104,10 +103,10 @@ data Expr
   | ExprUn (UnExpr Expr)
   | ExprBin (BinExpr Expr)
   | ExprGroup Expr
-  | ExprAsgn (Asgn (LVal Expr) Expr)
+  | ExprAsgn (Asgn LVal Expr)
   | ExprCall Expr [Expr]
-  | ExprFunc (Func Expr)
-  | ExprObj (Obj Expr)
+  | ExprFunc Func
+  | ExprObj Obj
   | ExprGet Expr Var
   | ExprSet Expr Var
   deriving (Eq, Show, Generic)
@@ -132,24 +131,20 @@ data BinOp
   | BinLogOr
   deriving (Eq, Show, Generic, Hashable)
 
-data Stmt a
-  = StmtExpr a
-  | StmtVarDecl Var a
-  | StmtPrint a
-  | StmtBlock [Stmt a]
-  | StmtIf a (Stmt a) (Maybe (Stmt a))
-  | StmtWhile a (Stmt a)
-  | StmtFuncDecl Var [Var] (Stmt a)
-  | StmtClassDecl Var [Stmt a]
-  | StmtReturn a
+data Stmt
+  = StmtExpr Expr
+  | StmtVarDecl Var Expr
+  | StmtPrint Expr
+  | StmtBlock [Stmt]
+  | StmtIf Expr Stmt (Maybe Stmt)
+  | StmtWhile Expr Stmt
+  | StmtFuncDecl Var [Var] Stmt
+  | StmtClassDecl Var [Stmt]
+  | StmtReturn Expr
   deriving
     ( Eq
     , Show
-    , Functor
-    , Foldable
-    , Traversable
     , Generic
-    , Hashable
     )
 
 {- | The `stringify` function should take an `Expr`

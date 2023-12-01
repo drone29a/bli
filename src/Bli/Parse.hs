@@ -176,7 +176,7 @@ pExpr' =
     prefix :: Text -> (Expr -> Expr) -> Operator Parser Expr
     prefix op ctor = Prefix $ ctor <$ symbol op
 
-pStmt :: Parser (Stmt Expr)
+pStmt :: Parser Stmt
 pStmt =
   choice
     [ try pStmtExpr
@@ -190,14 +190,14 @@ pStmt =
     , try pStmtReturn
     ]
 
-pStmtBlock :: Parser (Stmt Expr)
+pStmtBlock :: Parser Stmt
 pStmtBlock =
   StmtBlock <$> try (between (symbol "{") (symbol "}") $ many pStmt)
 
-pStmtExpr :: Parser (Stmt Expr)
+pStmtExpr :: Parser Stmt
 pStmtExpr = StmtExpr <$> try (pExpr <* symbol ";")
 
-pStmtVarDecl :: Parser (Stmt Expr)
+pStmtVarDecl :: Parser Stmt
 pStmtVarDecl = do
     void $ symbol "var"
     name <- pVar
@@ -207,7 +207,7 @@ pStmtVarDecl = do
       Just val -> return $ StmtVarDecl name val
       Nothing -> return $ StmtVarDecl name (ExprLit LitNil)
 
-pStmtWhile :: Parser (Stmt Expr)
+pStmtWhile :: Parser Stmt
 pStmtWhile = do
   void $ symbol "while"
   void $ symbol "("
@@ -216,7 +216,7 @@ pStmtWhile = do
   body <- pStmt
   return $ StmtWhile cond body
 
-pStmtFor :: Parser (Stmt Expr)
+pStmtFor :: Parser Stmt
 pStmtFor = do
   void $ symbol "for"
   void $ symbol "("
@@ -240,7 +240,7 @@ pStmtFor = do
       while = StmtWhile (fromMaybe (ExprLit (LitBool True)) mCond) whileBody
   return $ StmtBlock (catMaybes [mInit, Just while])
   
-pStmtIf :: Parser (Stmt Expr)
+pStmtIf :: Parser Stmt
 pStmtIf = do
   void $ symbol "if"
   void $ symbol "("
@@ -254,7 +254,7 @@ pFuncParams :: Parser [Var]
 pFuncParams = 
   sepBy pVar (symbol ",")
 
-pStmtFuncDecl :: Parser (Stmt Expr)
+pStmtFuncDecl :: Parser Stmt
 pStmtFuncDecl = do
   void $ symbol "fun"
   name <- pVar
@@ -264,7 +264,7 @@ pStmtFuncDecl = do
   block <- pStmtBlock
   return $ StmtFuncDecl name params block
 
-pStmtMethodDecl :: Parser (Stmt Expr)
+pStmtMethodDecl :: Parser Stmt
 pStmtMethodDecl = do
   name <- pVar
   void $ symbol "("
@@ -273,21 +273,21 @@ pStmtMethodDecl = do
   block <- pStmtBlock
   return $ StmtFuncDecl name params block
 
-pStmtClassDecl :: Parser (Stmt Expr)
+pStmtClassDecl :: Parser Stmt
 pStmtClassDecl = do
   void $ symbol "class"
   name <- pVar
   methods <- try (between (symbol "{") (symbol "}") $ many pStmtMethodDecl)
   return $ StmtClassDecl name methods
 
-pStmtReturn :: Parser (Stmt Expr)
+pStmtReturn :: Parser Stmt
 pStmtReturn = do
   void $ symbol "return"
   val <- pExpr
   void $ symbol ";"
   return $ StmtReturn val
 
-pProg :: Parser [Stmt Expr]
+pProg :: Parser [Stmt]
 pProg = many pStmt
 
 spaceConsumer :: Parser ()
