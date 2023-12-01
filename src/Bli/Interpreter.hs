@@ -179,8 +179,9 @@ execute stmt = do
     StmtClassDecl name methods -> do
       gEnv <- gets globalEnv
       lEnvs <- gets localEnvs
+      fieldsRef <- liftIO $ newIORef HMap.empty
       let klass = Class name methods
-          obj = Obj HMap.empty klass
+          obj = Obj fieldsRef klass
           ctor = 
             Func 
               { params = [] 
@@ -267,8 +268,8 @@ assignGlobalVar env var val =
       return True
     Nothing -> return False
 
-assignObjField :: Expr -> Expr -> Interpreter ()
-assignObjField = undefined
+assignObjField :: Expr -> Var -> Expr -> Interpreter ()
+assignObjField objExpr field val = undefined
 
 -- | Recursively evaluate an expression.
 eval :: Expr -> Interpreter Expr
@@ -295,9 +296,10 @@ eval expr = do
       val <- eval right
       assignVar var val
       return val
-    ExprAsgn (Asgn (LValSet set) right) -> do
+    ExprAsgn (Asgn (LValSet objExpr field) right) -> do
       val <- eval right
-      assignObjField set val
+      objExpr' <- eval objExpr
+      assignObjField objExpr' field val
       return val
     ExprFunc _fn -> return expr
     ExprCall target args -> do

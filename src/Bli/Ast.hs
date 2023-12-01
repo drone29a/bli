@@ -43,7 +43,7 @@ data Class = Class
   } deriving (Eq, Show, Generic)
 
 data Obj = Obj
-  { props :: Mapping
+  { fields :: IORef (HashMap Var Expr)
   , klass :: Class
   } deriving (Eq, Show, Generic)
 

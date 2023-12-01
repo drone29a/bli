@@ -14,7 +14,6 @@ import Bli.Ast
 import Bli.Error (BliException)
 import Control.Monad (void, when, liftM2)
 import Data.Maybe (isNothing, fromMaybe, catMaybes)
-import Control.Applicative ((<**>))
 
 type Parser = Parsec BliException Text
 
@@ -64,28 +63,12 @@ pAsgn :: Parser Expr
 pAsgn = try $ do
   lval <-
     choice
-      [ LValSet
-          <$> try
-            ( composeTerms
-                (ExprVar <$> pVar)
-                (many (pCall <|> pGet))
-                <**> pSet
-            )
+      [ try pSet
       , LValVar <$> try pVar
       ]
   void $ symbol "="
   rval <- pExpr
   return . ExprAsgn $ Asgn lval rval
-
--- pAsgn' :: Parser PExpr
--- pAsgn' = try $ do
---   lval <- choice 
---     [ LValSet <$> try (composeTerms (PExprVar <$> pVar) (many (pCall <|> pGet)) <**> pSet)
---     , LValVar <$> try pVar
---     ]
---   void $ symbol "="
---   rval <- pExpr
---   return $ PExprAsgn (Asgn lval rval)
 
 pCallArgs :: Parser [Expr]
 pCallArgs = try $ do
@@ -104,26 +87,15 @@ pGet = try $ do
   prop <- pVar <* notFollowedBy (symbol "=")
   return $ \obj -> ExprGet obj prop
 
-pSet :: Parser (Expr -> Expr)
+pSet :: Parser LVal
 pSet = try $ do
+  objExpr <-
+    composeTerms
+      (ExprVar <$> pVar)
+      (many (pCall <|> pGet))
   void $ symbol "."
-  prop <- pVar
-  return $ \obj -> ExprSet obj prop
-
--- pGet' :: Parser (PExpr -> PExpr)
--- pGet' = try $ do 
---   void $ symbol "."
---   -- Get and Set parse the same, only a following
---   -- "=" distinguishes them
---   property <- pVar <* notFollowedBy (symbol "=")
---   return $ \obj -> PExprGet obj property
-
--- pSet' :: Parser (PExpr -> PExpr)
--- pSet' = try $ do
---   void $ symbol "."
---   property <- pVar
---   void $ lookAhead (symbol "=")
---   return $ \obj -> PExprSet obj property
+  field <- pVar
+  return $ LValSet objExpr field
   
 -- | Supports construction of an AST tree by threading
 -- a term through a sequence of functions which augment
