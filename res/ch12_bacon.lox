@@ -4,9 +4,7 @@ class Bacon {
   }
 }
 
-print "bye";
-
 var b = Bacon();
 b.eat();
 
-// Bacon().eat(); // Prints "Crunch crunch crunch!".
+Bacon().eat(); // Prints "Crunch crunch crunch!".

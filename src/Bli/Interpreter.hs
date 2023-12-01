@@ -21,7 +21,7 @@ import Data.HashMap.Strict qualified as HMap
 import Data.Text.IO (putStr)
 import Control.Monad (when, void, unless)
 import Bli.Error (BliException (ErrorMsg, Goto), mkErrorMsg)
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, listToMaybe, fromMaybe)
 import Control.Applicative ((<|>))
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -109,7 +109,7 @@ interpret' startState stmts = do
       (traverse_ execute stmts)
       startState
   case result of
-    Left e -> case e of 
+    Left e -> case e of
       ErrorMsg err -> error $ T.unpack err
       Goto -> error "Unexpected Goto error."
     Right () -> return finalState
@@ -129,7 +129,7 @@ writeOut str = do
     then
       modify
           (\s -> s{output = str : output s})
-    else do 
+    else do
       liftIO $ putStr str
       liftIO $ hFlush stdout
 
@@ -179,21 +179,60 @@ execute stmt = do
     StmtClassDecl name methods -> do
       gEnv <- gets globalEnv
       lEnvs <- gets localEnvs
-      fieldsRef <- liftIO $ newIORef HMap.empty
-      let klass = Class name methods
-          obj = Obj fieldsRef klass
-          ctor = 
-            Func 
-              { params = [] 
-              , body = StmtReturn (ExprObj obj)
+
+      let initParams = fromMaybe [] (findInitParams methods)
+          klass = Class name methods
+          ctor =
+            Func
+              { params = initParams
+              , body = StmtCtor klass initParams
               , funcGEnv = gEnv
               , funcLEnvs = lEnvs
               }
       defVar name (ExprFunc ctor)
+        where
+          getInitParams :: Stmt -> Maybe [Var]
+          getInitParams (StmtFuncDecl mname params _body) = 
+            if mname == Var "init"
+              then Just params
+              else Nothing
+          getInitParams _ = Nothing
+          findInitParams :: [Stmt] -> Maybe [Var]
+          findInitParams xs = 
+            listToMaybe $ mapMaybe getInitParams xs
+
     StmtReturn result -> do
       result' <- eval result
       modify (\s -> s{returnVal = result'})
       throwError Goto
+    StmtCtor klass@(Class _name methods) initParams -> do
+      fieldsRef <- liftIO $ newIORef HMap.empty
+      let obj = Obj fieldsRef klass
+      -- Add a local env with "this" bound to the object
+      pushEnv
+      defVar (Var "this") (ExprObj obj)
+      -- Create an environment to capture all the methods
+      pushEnv
+      -- Define methods for the object
+      traverse_ execute methods
+
+      -- Fetch the methods from the environment
+      ((LocalEnv m) : _) <- gets localEnvs
+      let names = HMap.keys m
+      funcs <- traverse (liftIO . readIORef) (HMap.elems m)
+      traverse_ (uncurry $ assignObjField (ExprObj obj)) (zip names funcs)
+
+      case HMap.lookup (Var "init") m of
+        Just initMethodRef -> do 
+          initMethod <- liftIO $ readIORef initMethodRef 
+          void $ eval (ExprCall initMethod (fmap ExprVar initParams))
+        Nothing -> return ()
+
+      -- Remove the methods environment and the "this" local env
+      popEnv
+      popEnv
+
+      execute $ StmtReturn (ExprObj obj)
 
 pushEnv :: Interpreter ()
 pushEnv = modify (\s -> s{localEnvs = LocalEnv HMap.empty : localEnvs s})
@@ -252,7 +291,7 @@ assignLocalVar envs var val =
   case remEnvs of
     (LocalEnv m) : _xs -> do
       case HMap.lookup var m of
-        Just ref -> do 
+        Just ref -> do
           liftIO $ writeIORef ref val
           return True
         Nothing -> throwError $ ErrorMsg "Unexpected missing variable reference."
@@ -276,8 +315,8 @@ assignObjField objExpr field val = do
       fields <- liftIO $ readIORef fieldsRef
       liftIO $ writeIORef fieldsRef (HMap.insert field val fields)
     _ -> throwError $ ErrorMsg ("Expected object for assignment, found: " <> stringify objExpr <> ".")
-        
-  
+
+
 
 -- | Recursively evaluate an expression.
 eval :: Expr -> Interpreter Expr
@@ -318,22 +357,22 @@ eval expr = do
         ExprFunc f@(Func fParams fBody fGEnv fLEnvs) -> do
           -- Evaluate the arguments
           args' <- traverse eval args
-          
+
           -- Check if too many arguments provided
           when (length args' > length fParams)
             (throwError . ErrorMsg $ "Too many arguments provided.")
-          
+
           -- Check if too few arguments are provided
           if length args' < length fParams then
             -- Return a new ExprFunc with fewer parameters and appropriate
             -- environment for previously provided arguments
             return $ createPartial f args'
-          
+
           -- All arguments were provided
           else do
             -- Wrap arguments inside `IORef`s to place them in an environment
             argsRefs <- traverse (liftIO . newIORef) args'
-           
+
             -- Create an environment to link the formal parameters with
             -- function call arguments
             let callEnv = LocalEnv $ HMap.fromList $ zip fParams argsRefs
@@ -353,7 +392,7 @@ eval expr = do
               )
 
             -- Execute statement block associated with function
-            catchError (execute fBody) 
+            catchError (execute fBody)
               (\e -> case e of
                 Goto -> return ()
                 -- Rethrow the error if it isn't related to control flow
@@ -373,9 +412,9 @@ eval expr = do
             return retVal
         _ -> throwError . ErrorMsg $ "Invalid call target: " <> stringify target' <> "."
     ExprObj _ -> return expr
-    ExprGet src field -> do 
+    ExprGet src field -> do
       result <- eval src
-      case result of 
+      case result of
         ExprObj (Obj fieldsRef _klass) -> do
           fields <- liftIO $ readIORef fieldsRef
           case HMap.lookup field fields of
@@ -390,7 +429,7 @@ eval expr = do
 -- an `ExprFunc` wrapper that calls the original function using
 -- the partially-applied arguments.
 createPartial :: Func -> [Expr] -> Expr
-createPartial f@(Func fParams _fBody fGEnv fLEnvs) args = 
+createPartial f@(Func fParams _fBody fGEnv fLEnvs) args =
   ExprFunc (Func pParams pBody fGEnv fLEnvs)
     where
       pParams :: [Var]
@@ -442,7 +481,7 @@ evalBinary op x y = do
           xNum <- getNum x'
           yNum <- getNum y'
           return $ ExprLit (LitNum $ xNum + yNum)
-        ExprLit (LitStr _) -> do  
+        ExprLit (LitStr _) -> do
           xStr <- getStr x'
           yStr <- getStr y'
           return $ ExprLit (LitStr $ xStr <> yStr)

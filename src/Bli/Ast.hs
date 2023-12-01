@@ -143,6 +143,7 @@ data Stmt
   | StmtFuncDecl Var [Var] Stmt
   | StmtClassDecl Var [Stmt]
   | StmtReturn Expr
+  | StmtCtor Class [Var]
   deriving
     ( Eq
     , Show

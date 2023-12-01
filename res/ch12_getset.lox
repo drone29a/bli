@@ -2,9 +2,16 @@ class Empty {
 
 }
 
-var e = Empty();
-e.x = 3;
-e.y = "y field";
+var e1 = Empty();
+e1.x = 3;
+e1.y = "e1's y field";
 
-print e.x;
-print e.y;
+var e2 = Empty();
+e2.x = 42;
+e2.y = "e2's y field";
+
+print e1.x;
+print e1.y;
+
+print e2.x;
+print e2.y;
