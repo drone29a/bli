@@ -14,7 +14,6 @@ import Bli.Ast
 import Bli.Error (BliException)
 import Control.Monad (void, when, liftM2)
 import Data.Maybe (isNothing, fromMaybe, catMaybes)
-import Control.Applicative ((<**>))
 
 type Parser = Parsec BliException Text
 
@@ -44,7 +43,7 @@ pNil =
   LitNil <$ symbol "nil" <?> "nil"
 
 pIdent :: Parser Ident
-pIdent = 
+pIdent =
   Ident . T.pack <$> lexeme ((:) <$> letterChar <*> many alphaNumChar <?> "identifier")
 
 pVar :: Parser Var
@@ -60,32 +59,32 @@ pOperand = try $ do
     , ExprVar <$> try pVar
     ]
 
+-- pAsgn :: Parser Expr
+-- pAsgn = try $ do
+--   lval <-
+--     choice
+--       [ LValSet
+--           <$> try
+--             ( composeTerms
+--                 (ExprVar <$> pVar)
+--                 (many (pCall <|> pGet))
+--             )  <**> pSet
+--       , LValVar <$> try pVar
+--       ]
+--   void $ symbol "="
+--   rval <- pExpr
+--   return . ExprAsgn $ Asgn lval rval
+
 pAsgn :: Parser Expr
 pAsgn = try $ do
   lval <-
     choice
-      [ LValSet
-          <$> try
-            ( composeTerms
-                (ExprVar <$> pVar)
-                (many (pCall <|> pGet))
-                <**> pSet
-            )
+      [ try pSet
       , LValVar <$> try pVar
       ]
   void $ symbol "="
   rval <- pExpr
   return . ExprAsgn $ Asgn lval rval
-
--- pAsgn' :: Parser PExpr
--- pAsgn' = try $ do
---   lval <- choice 
---     [ LValSet <$> try (composeTerms (PExprVar <$> pVar) (many (pCall <|> pGet)) <**> pSet)
---     , LValVar <$> try pVar
---     ]
---   void $ symbol "="
---   rval <- pExpr
---   return $ PExprAsgn (Asgn lval rval)
 
 pCallArgs :: Parser [Expr]
 pCallArgs = try $ do
@@ -104,27 +103,22 @@ pGet = try $ do
   prop <- pVar <* notFollowedBy (symbol "=")
   return $ \obj -> ExprGet obj prop
 
-pSet :: Parser (Expr -> Expr)
+pSet :: Parser LVal
 pSet = try $ do
+  objExpr <-
+    composeTerms
+      (ExprVar <$> pVar)
+      (many (pCall <|> pGet))
   void $ symbol "."
-  prop <- pVar
-  return $ \obj -> ExprSet obj prop
+  field <- pVar
+  return $ LValSet objExpr field
 
--- pGet' :: Parser (PExpr -> PExpr)
--- pGet' = try $ do 
+-- pSet :: Parser (Expr -> Expr)
+-- pSet = try $ do
 --   void $ symbol "."
---   -- Get and Set parse the same, only a following
---   -- "=" distinguishes them
---   property <- pVar <* notFollowedBy (symbol "=")
---   return $ \obj -> PExprGet obj property
+--   prop <- pVar
+--   return $ \obj -> ExprSet obj prop
 
--- pSet' :: Parser (PExpr -> PExpr)
--- pSet' = try $ do
---   void $ symbol "."
---   property <- pVar
---   void $ lookAhead (symbol "=")
---   return $ \obj -> PExprSet obj property
-  
 -- | Supports construction of an AST tree by threading
 -- a term through a sequence of functions which augment
 -- the AST.
@@ -135,7 +129,7 @@ composeTerms :: Parser a -> Parser [a -> a] -> Parser a
 composeTerms = liftM2 (foldl (flip ($)))
 
 pExpr :: Parser Expr
-pExpr = try pAsgn <|> try (composeTerms pExpr' (many (pCall <|> pGet))) 
+pExpr = try pAsgn <|> try (composeTerms pExpr' (many (pCall <|> pGet)))
 
 pExpr' :: Parser Expr
 pExpr' =
@@ -176,7 +170,7 @@ pExpr' =
     prefix :: Text -> (Expr -> Expr) -> Operator Parser Expr
     prefix op ctor = Prefix $ ctor <$ symbol op
 
-pStmt :: Parser (Stmt Expr)
+pStmt :: Parser Stmt
 pStmt =
   choice
     [ try pStmtExpr
@@ -187,17 +181,18 @@ pStmt =
     , try pStmtBlock
     , try pStmtIf
     , try pStmtFuncDecl
+    , try pStmtClassDecl
     , try pStmtReturn
     ]
 
-pStmtBlock :: Parser (Stmt Expr)
+pStmtBlock :: Parser Stmt
 pStmtBlock =
   StmtBlock <$> try (between (symbol "{") (symbol "}") $ many pStmt)
 
-pStmtExpr :: Parser (Stmt Expr)
+pStmtExpr :: Parser Stmt
 pStmtExpr = StmtExpr <$> try (pExpr <* symbol ";")
 
-pStmtVarDecl :: Parser (Stmt Expr)
+pStmtVarDecl :: Parser Stmt
 pStmtVarDecl = do
     void $ symbol "var"
     name <- pVar
@@ -207,7 +202,7 @@ pStmtVarDecl = do
       Just val -> return $ StmtVarDecl name val
       Nothing -> return $ StmtVarDecl name (ExprLit LitNil)
 
-pStmtWhile :: Parser (Stmt Expr)
+pStmtWhile :: Parser Stmt
 pStmtWhile = do
   void $ symbol "while"
   void $ symbol "("
@@ -216,7 +211,7 @@ pStmtWhile = do
   body <- pStmt
   return $ StmtWhile cond body
 
-pStmtFor :: Parser (Stmt Expr)
+pStmtFor :: Parser Stmt
 pStmtFor = do
   void $ symbol "for"
   void $ symbol "("
@@ -239,8 +234,8 @@ pStmtFor = do
         Nothing -> body
       while = StmtWhile (fromMaybe (ExprLit (LitBool True)) mCond) whileBody
   return $ StmtBlock (catMaybes [mInit, Just while])
-  
-pStmtIf :: Parser (Stmt Expr)
+
+pStmtIf :: Parser Stmt
 pStmtIf = do
   void $ symbol "if"
   void $ symbol "("
@@ -251,10 +246,10 @@ pStmtIf = do
   return $ StmtIf cond trueBody falseBody
 
 pFuncParams :: Parser [Var]
-pFuncParams = 
+pFuncParams =
   sepBy pVar (symbol ",")
 
-pStmtFuncDecl :: Parser (Stmt Expr)
+pStmtFuncDecl :: Parser Stmt
 pStmtFuncDecl = do
   void $ symbol "fun"
   name <- pVar
@@ -264,7 +259,7 @@ pStmtFuncDecl = do
   block <- pStmtBlock
   return $ StmtFuncDecl name params block
 
-pStmtMethodDecl :: Parser (Stmt Expr)
+pStmtMethodDecl :: Parser Stmt
 pStmtMethodDecl = do
   name <- pVar
   void $ symbol "("
@@ -273,21 +268,21 @@ pStmtMethodDecl = do
   block <- pStmtBlock
   return $ StmtFuncDecl name params block
 
-pStmtClassDecl :: Parser (Stmt Expr)
+pStmtClassDecl :: Parser Stmt
 pStmtClassDecl = do
   void $ symbol "class"
   name <- pVar
   methods <- try (between (symbol "{") (symbol "}") $ many pStmtMethodDecl)
   return $ StmtClassDecl name methods
 
-pStmtReturn :: Parser (Stmt Expr)
+pStmtReturn :: Parser Stmt
 pStmtReturn = do
   void $ symbol "return"
   val <- pExpr
   void $ symbol ";"
   return $ StmtReturn val
 
-pProg :: Parser [Stmt Expr]
+pProg :: Parser [Stmt]
 pProg = many pStmt
 
 spaceConsumer :: Parser ()

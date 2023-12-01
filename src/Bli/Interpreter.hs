@@ -99,10 +99,10 @@ newtype Interpreter a = Interpreter
 runInterpreter :: Interpreter a -> InterpreterState -> IO (Either BliException a, InterpreterState)
 runInterpreter = runStateT . runExceptT . unInterpreter
 
-interpret :: [Stmt Expr] -> IO ()
+interpret :: [Stmt] -> IO ()
 interpret = void . interpret' initialInterpreterState
 
-interpret' :: InterpreterState -> [Stmt Expr] -> IO InterpreterState
+interpret' :: InterpreterState -> [Stmt] -> IO InterpreterState
 interpret' startState stmts = do
   (result, finalState) <-
     runInterpreter
@@ -136,7 +136,7 @@ writeOut str = do
 writeOutLn :: Text -> Interpreter ()
 writeOutLn str = writeOut $ str <> "\n"
 
-execute :: Stmt Expr -> Interpreter ()
+execute :: Stmt -> Interpreter ()
 execute stmt = do
   debugOn <- gets debug
   when debugOn (liftIO $ print stmt)
@@ -179,8 +179,9 @@ execute stmt = do
     StmtClassDecl name methods -> do
       gEnv <- gets globalEnv
       lEnvs <- gets localEnvs
+      fieldsRef <- liftIO $ newIORef HMap.empty
       let klass = Class name methods
-          obj = Obj HMap.empty klass
+          obj = Obj fieldsRef klass
           ctor = 
             Func 
               { params = [] 
@@ -267,8 +268,16 @@ assignGlobalVar env var val =
       return True
     Nothing -> return False
 
-assignObjField :: Expr -> Expr -> Interpreter ()
-assignObjField = undefined
+assignObjField :: Expr -> Var -> Expr -> Interpreter ()
+assignObjField objExpr field val = do
+  -- Assignment should always succeed.
+  case objExpr of
+    ExprObj (Obj fieldsRef _klass) -> do
+      fields <- liftIO $ readIORef fieldsRef
+      liftIO $ writeIORef fieldsRef (HMap.insert field val fields)
+    _ -> throwError $ ErrorMsg ("Expected object for assignment, found: " <> stringify objExpr <> ".")
+        
+  
 
 -- | Recursively evaluate an expression.
 eval :: Expr -> Interpreter Expr
@@ -295,9 +304,10 @@ eval expr = do
       val <- eval right
       assignVar var val
       return val
-    ExprAsgn (Asgn (LValSet set) right) -> do
+    ExprAsgn (Asgn (LValSet objExpr field) right) -> do
       val <- eval right
-      assignObjField set val
+      objExpr' <- eval objExpr
+      assignObjField objExpr' field val
       return val
     ExprFunc _fn -> return expr
     ExprCall target args -> do
@@ -361,24 +371,31 @@ eval expr = do
               )
 
             return retVal
-        _ -> throwError . ErrorMsg $ ("Invalid call target: " <> stringify target' <> ".")
+        _ -> throwError . ErrorMsg $ "Invalid call target: " <> stringify target' <> "."
     ExprObj _ -> return expr
-    ExprGet obj field -> 
+    ExprGet src field -> do 
+      result <- eval src
+      case result of 
+        ExprObj (Obj fieldsRef _klass) -> do
+          fields <- liftIO $ readIORef fieldsRef
+          case HMap.lookup field fields of
+            Just val -> return val
+            Nothing -> throwError . ErrorMsg $ "No field found for: " <> T.pack (show field) <> "."
+        _ -> throwError . ErrorMsg $ "Expected an object, found: " <> stringify result <> "."
       -- Lookup value in object field
-      undefined
     ExprSet _ _ -> return expr
 
 -- | Create a partial application of arguments to a function.
 -- Given a function and some arguments for the function, create
 -- an `ExprFunc` wrapper that calls the original function using
 -- the partially-applied arguments.
-createPartial :: Func Expr -> [Expr] -> Expr
+createPartial :: Func -> [Expr] -> Expr
 createPartial f@(Func fParams _fBody fGEnv fLEnvs) args = 
   ExprFunc (Func pParams pBody fGEnv fLEnvs)
     where
       pParams :: [Var]
       pParams = drop (length args) fParams
-      pBody :: Stmt Expr
+      pBody :: Stmt
       pBody = StmtReturn (ExprCall (ExprFunc f) (args ++ fmap ExprVar pParams))
 
 evalUnary :: UnOp -> Expr -> Interpreter Expr
