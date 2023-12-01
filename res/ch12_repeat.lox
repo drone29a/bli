@@ -1,0 +1,16 @@
+class Repeater {
+    init(x) {
+        this.x = x;
+    }
+
+    say() {
+        print this.x;
+    }
+}
+
+var r1 = Repeater("one, two, three...");
+print r1.x;
+r1.say();
+
+r1.x = "repeater!";
+r1.say();
