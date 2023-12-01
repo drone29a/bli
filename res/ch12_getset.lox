@@ -1,0 +1,10 @@
+class Empty {
+
+}
+
+var e = Empty();
+e.x = 3;
+e.y = "y field";
+
+print e.x;
+print e.y;
