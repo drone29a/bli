@@ -9,7 +9,7 @@ import Bli.Ast (
   Stmt (..),
   UnOp (..),
   Var (..),
-  stringify, UnExpr (UnExpr), BinExpr (BinExpr), GlobalEnv (..), LocalEnv (..), Func (..), Obj (Obj), Class (Class),
+  stringify, UnExpr (UnExpr), BinExpr (BinExpr), GlobalEnv (..), LocalEnv (..), Func (..), Obj (Obj, klass), Class (Class),
  )
 
 import Prelude hiding (putStr, putStrLn)
@@ -179,13 +179,11 @@ execute stmt = do
     StmtClassDecl name methods -> do
       gEnv <- gets globalEnv
       lEnvs <- gets localEnvs
-      fieldsRef <- liftIO $ newIORef HMap.empty
       let klass = Class name methods
-          obj = Obj fieldsRef klass
           ctor = 
             Func 
               { params = [] 
-              , body = StmtReturn (ExprObj obj)
+              , body = StmtCtor klass []
               , funcGEnv = gEnv
               , funcLEnvs = lEnvs
               }
@@ -194,6 +192,25 @@ execute stmt = do
       result' <- eval result
       modify (\s -> s{returnVal = result'})
       throwError Goto
+    StmtCtor klass@(Class _name methods) initParams -> do
+      fieldsRef <- liftIO $ newIORef HMap.empty
+      let obj = Obj fieldsRef klass
+      
+      pushEnv
+      defVar (Var "this") (ExprObj obj)
+
+      -- Define methods for the object
+      traverse_ execute methods
+
+      ((LocalEnv m) : _) <- gets localEnvs
+      let names = HMap.keys m
+      funcs <- traverse (liftIO . readIORef) (HMap.elems m)
+      traverse_ (uncurry $ assignObjField (ExprObj obj)) (zip names funcs)
+
+      popEnv
+
+      execute $ StmtReturn (ExprObj obj)
+
 
 pushEnv :: Interpreter ()
 pushEnv = modify (\s -> s{localEnvs = LocalEnv HMap.empty : localEnvs s})
@@ -269,7 +286,12 @@ assignGlobalVar env var val =
     Nothing -> return False
 
 assignObjField :: Expr -> Var -> Expr -> Interpreter ()
-assignObjField objExpr field val = undefined
+assignObjField objExpr field val = do
+  case objExpr of
+    ExprObj (Obj fieldsRef _klass) -> do
+      fields <- liftIO $ readIORef fieldsRef
+      liftIO $ writeIORef fieldsRef (HMap.insert field val fields)
+    _ -> throwError $ ErrorMsg ("Expected object for assignment, found: " <> stringify objExpr <> ".")
 
 -- | Recursively evaluate an expression.
 eval :: Expr -> Interpreter Expr
@@ -365,9 +387,15 @@ eval expr = do
             return retVal
         _ -> throwError . ErrorMsg $ ("Invalid call target: " <> stringify target' <> ".")
     ExprObj _ -> return expr
-    ExprGet obj field -> 
-      -- Lookup value in object field
-      undefined
+    ExprGet src field -> do
+      result <- eval src
+      case result of
+        ExprObj (Obj fieldsRef _klass) -> do
+          fields <- liftIO $ readIORef fieldsRef
+          case HMap.lookup field fields of
+            Just val -> return val
+            Nothing -> throwError . ErrorMsg $ "No field found for: " <> T.pack (show field) <> "."
+        _ -> throwError . ErrorMsg $ "Expected an object, found: " <> stringify result <> "."
     ExprSet _ _ -> return expr
 
 -- | Create a partial application of arguments to a function.
