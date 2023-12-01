@@ -3,7 +3,6 @@
 {-# HLINT ignore "Use lambda-case" #-}
 module Bli.InterpreterSpec where
 
-import Bli.Analysis (parseExpr)
 import Bli.Ast
 import Bli.Error (BliException (ErrorMsg))
 import Bli.Interpreter
@@ -27,18 +26,15 @@ testInterpret :: Text -> IO InterpreterState
 testInterpret prog =
   case parse pProg "" prog of
     Right stmts -> do
-      interpret' initialInterpreterState{debug = False} (process stmts)
+      interpret' initialInterpreterState{debug = False} stmts
     Left _ -> assertParseFailure
 
 exprShouldBe :: (Show a, Eq a) => Text -> (Expr -> IO a) -> a -> Expectation
 exprShouldBe exprStr f expected =
   case parse pExpr "" exprStr of
     Right expr -> do
-      case parseExpr expr of
-        Right expr' -> do
-          result <- f expr'
-          result `shouldBe` expected
-        Left _ -> assertParseFailure
+      result <- f expr
+      result `shouldBe` expected
     Left _ -> assertParseFailure
 
 shouldOutput :: Text -> [Text] -> Expectation

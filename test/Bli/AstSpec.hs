@@ -5,7 +5,6 @@ import Bli.Parse
 
 import Data.Text (Text)
 
-import Bli.Analysis (parseExpr)
 import Test.HUnit (assertFailure)
 import Test.Hspec
 import Text.Megaparsec (parse)
@@ -22,11 +21,7 @@ exprShouldBe exprStr f expected = do
 parseTestExpr :: Text -> IO Expr
 parseTestExpr exprStr =
   case parse pExpr "" exprStr of
-    Right expr -> do
-      case parseExpr expr of
-        Right expr' -> do
-          return expr'
-        Left _ -> assertParseFailure
+    Right expr -> return expr
     Left _ -> assertParseFailure
 
 spec :: Spec
