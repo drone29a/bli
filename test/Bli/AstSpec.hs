@@ -5,7 +5,6 @@ import Bli.Parse
 
 import Data.Text (Text)
 
-import Bli.Analysis (parseExpr)
 import Test.HUnit (assertFailure)
 import Test.Hspec
 import Text.Megaparsec (parse)
@@ -23,10 +22,7 @@ parseTestExpr :: Text -> IO Expr
 parseTestExpr exprStr =
   case parse pExpr "" exprStr of
     Right expr -> do
-      case parseExpr expr of
-        Right expr' -> do
-          return expr'
-        Left _ -> assertParseFailure
+      return expr
     Left _ -> assertParseFailure
 
 spec :: Spec
@@ -44,7 +40,7 @@ spec = do
     it "should produce a nested arithmetic expression" $ do
       expr <- parseTestExpr "(1 + 20) * 4"
       expr
-        `shouldBe` ( ExprBin
+        `shouldBe` ExprBin
                       ( BinExpr
                           BinMul
                           ( ExprGroup
@@ -58,12 +54,11 @@ spec = do
                           )
                           (ExprLit (LitNum 4.0))
                       )
-                   )
 
     it "should produce a nested logic expression" $ do
       expr <- parseTestExpr "(32 > 19.32) and (false or (\"foo\" != \"bar\"))"
       expr
-        `shouldBe` ( ExprBin
+        `shouldBe` ExprBin
                       ( BinExpr
                           BinLogAnd
                           ( ExprGroup
@@ -93,7 +88,6 @@ spec = do
                               )
                           )
                       )
-                   )
 
   describe "stringifying expressions" $ do
     it "should support numbers" $ do
@@ -103,5 +97,5 @@ spec = do
       expr <- parseTestExpr "(44 - 2) * 42"
       stringify expr `shouldBe` "(44 - 2) * 42"
     it "should support logic expressions" $ do
-      expr <- parseTestExpr "(true and false) or ((100.4 < 90.1234) and !(true and true))" 
+      expr <- parseTestExpr "(true and false) or ((100.4 < 90.1234) and !(true and true))"
       stringify expr `shouldBe` "(true and false) or ((100.4 < 90.1234) and !(true and true))"
