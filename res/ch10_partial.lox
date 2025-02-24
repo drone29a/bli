@@ -1,7 +1,7 @@
 fun add(a, b, c) {
-  print a + b + c;
+  return a + b + c;
 }
 
-add(1)(2)(3);
-add(2, 2)(3);
-add(1)(10, 20);
+print add(1)(2)(3);
+print add(2, 2)(3);
+print add(1)(10, 20);

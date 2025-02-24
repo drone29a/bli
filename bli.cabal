@@ -33,7 +33,7 @@ library
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:
   build-depends:
-    , base                ^>=4.16.4.0
+    , base                ^>=4.17.0.0
     , either              ^>=5
     , hashable            ^>=1.4
     , megaparsec          ^>=9.4.0
@@ -47,7 +47,7 @@ library
   default-language:   GHC2021
   default-extensions:
     DeriveAnyClass,
-    DerivingStrategies, 
+    DerivingStrategies,
     DuplicateRecordFields,
     OverloadedStrings
 
@@ -62,7 +62,7 @@ executable bli
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:
   build-depends:
-    , base  ^>=4.16.4.0
+    , base  ^>=4.17.0.0
     , bli
     , megaparsec  ^>=9.4.0
     , text  ^>=1.2 && <2.0
@@ -77,12 +77,12 @@ test-suite spec
   main-is: Spec.hs
   hs-source-dirs:
     test
-  other-modules: 
+  other-modules:
     Bli.AstSpec,
     Bli.InterpreterSpec
   ghc-options: -Wall
   build-depends:
-    , base  ^>=4.16.4.0
+    , base  ^>=4.17.0.0
     , bli
     , hspec ==2.*
     , HUnit ==1.6.*

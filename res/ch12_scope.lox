@@ -1,0 +1,29 @@
+{
+    var z = 42;
+
+    class Foo {
+        init(x, y) {
+            this.x = x;
+            this.y = y;
+        }
+
+        calc() {
+            print (this.x) + (this.y) + z;
+        }
+    }
+
+    var foo1 = Foo(0, 0);
+    print foo1.calc();
+
+    { 
+        // This cause a problem
+        // z = 0;
+        
+        // But this does not...
+        var z = 0;
+        {
+            var foo2 = Foo(0, 1);
+            print foo2.calc();
+        }
+    }
+}

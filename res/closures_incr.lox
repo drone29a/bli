@@ -1,0 +1,18 @@
+fun mkIncr(incrVal) {
+  var count = 0;
+
+  fun incr(x) {
+    count = count + 1;
+    print count;
+    return x + incrVal;
+  }
+
+  return incr;
+}
+
+var add1 = mkIncr(1);
+var sub3 = mkIncr(-3);
+
+print add1(10);
+print sub3(10);
+print add1(100);
