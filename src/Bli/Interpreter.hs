@@ -9,7 +9,7 @@ import Bli.Ast (
   Stmt (..),
   UnOp (..),
   Var (..),
-  stringify, UnExpr (UnExpr), BinExpr (BinExpr), GlobalEnv (..), LocalEnv (..), Func (..), Obj (Obj, klass), Class (Class),
+  stringify, UnExpr (UnExpr), BinExpr (BinExpr), GlobalEnv (..), LocalEnv (..), Func (..), Obj (Obj), Class (Class),
  )
 
 import Prelude hiding (putStr, putStrLn)
@@ -46,7 +46,7 @@ lookupLocalVar envs var =
       x' <- liftIO $ readIORef x
       return $ Just x'
 
--- | There is aloways a base global environment
+-- | There is always a base global environment
 -- and there is always an active environment used for
 -- assignments.
 --
@@ -99,9 +99,12 @@ newtype Interpreter a = Interpreter
 runInterpreter :: Interpreter a -> InterpreterState -> IO (Either BliException a, InterpreterState)
 runInterpreter = runStateT . runExceptT . unInterpreter
 
+-- | Interpret a list of statements.
 interpret :: [Stmt] -> IO ()
 interpret = void . interpret' initialInterpreterState
 
+-- | Helper function for interpretet statements. 
+-- Requires an initial state for the interpreter.
 interpret' :: InterpreterState -> [Stmt] -> IO InterpreterState
 interpret' startState stmts = do
   (result, finalState) <-
@@ -114,6 +117,7 @@ interpret' startState stmts = do
       Goto -> error "Unexpected Goto error."
     Right () -> return finalState
 
+-- | Evaluate a single expression in the interpreter.
 interpretExpr :: Expr -> IO (Either BliException Expr)
 interpretExpr expr = do
   (result, _finalState) <-
@@ -121,6 +125,14 @@ interpretExpr expr = do
     initialInterpreterState
   return result
 
+-- | This function is used to manage output from
+-- a program being run in the interpreter.
+-- The interpreter can either immediately print
+-- output from the Lox program to stdout, or it
+-- can collect the output to store in one large
+-- "output string." 
+-- The latter is useful for testing that Lox
+-- programs generate their expected output.
 writeOut :: Text -> Interpreter ()
 writeOut str = do
   collectOutputOn <- gets collectOutput
@@ -136,21 +148,32 @@ writeOut str = do
 writeOutLn :: Text -> Interpreter ()
 writeOutLn str = writeOut $ str <> "\n"
 
+-- | Execute a single statement in the interpreter.
 execute :: Stmt -> Interpreter ()
 execute stmt = do
+  -- When the debug flag is on, statements are printed
+  -- to the console.
   debugOn <- gets debug
   when debugOn (liftIO $ print stmt)
   case stmt of
     StmtPrint expr -> do
+      -- Evaluate and print out the expression.
       result <- eval expr
       writeOutLn $ stringify result
     StmtVarDecl (Var name) expr -> do
+      -- Evaluate the expression and define the variable.
       result <- eval expr
       defVar (Var name) result
     StmtExpr expr -> do
+      -- Evaluate the expression, presumably for side effects
+      -- such as variable assignment. The final evaluation result
+      -- is not used.      
       _ <- eval expr
       return ()
     StmtBlock stmts -> do
+      -- Push on a new environment block to the environment stack, 
+      -- execute the statements in the block, 
+      -- and finally pop the environment block.      
       pushEnv
       traverse_ execute stmts
       popEnv
@@ -211,10 +234,11 @@ execute stmt = do
 
       execute $ StmtReturn (ExprObj obj)
 
-
+-- | Push a local environment onto the stack of local environments.
 pushEnv :: Interpreter ()
 pushEnv = modify (\s -> s{localEnvs = LocalEnv HMap.empty : localEnvs s})
 
+-- | Pop and discard a local environment from the stack of local environments.
 popEnv :: Interpreter ()
 popEnv = do
   lEnvs <- gets localEnvs
@@ -411,6 +435,11 @@ createPartial f@(Func fParams _fBody fGEnv fLEnvs) args =
       pBody :: Stmt
       pBody = StmtReturn (ExprCall (ExprFunc f) (args ++ fmap ExprVar pParams))
 
+-- | Evaluate the two unary operators in Lox: `-` and `!`.
+-- Unary negation `-` only operates on numbers. Logical not `!`
+-- can operate on all types of expressions because all expressions
+-- can be used as boolean values. The `isTruthy` function can
+-- be used to convert any expression to a boolean value.
 evalUnary :: UnOp -> Expr -> Interpreter Expr
 evalUnary UnNeg x = do
   result <- eval x
@@ -421,6 +450,10 @@ evalUnary UnNot x = do
   result <- eval x
   return $ ExprLit (LitBool $ not . isTruthy $ result)
 
+-- | Evaluate binary expressions. All binary operators in Lox
+-- only work on number values, except for the `+` operator which
+-- can also be used to concatenate two strings.
+-- Support for all binary operators should be provided.
 evalBinary :: BinOp -> Expr -> Expr -> Interpreter Expr
 evalBinary op x y = do
   x' <- eval x
