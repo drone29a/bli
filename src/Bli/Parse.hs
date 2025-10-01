@@ -43,8 +43,8 @@ pNil =
   LitNil <$ symbol "nil" <?> "nil"
 
 pIdent :: Parser Ident
-pIdent = 
-  Ident . T.pack <$> lexeme ((:) <$> letterChar <*> many alphaNumChar <?> "identifier")
+pIdent =
+  Ident . T.pack <$> lexeme ((:) <$> (letterChar <|> char '_') <*> many (alphaNumChar <|> char '_') <?> "identifier")
 
 pVar :: Parser Var
 pVar = do
@@ -96,7 +96,7 @@ pSet = try $ do
   void $ symbol "."
   field <- pVar
   return $ LValSet objExpr field
-  
+
 -- | Supports construction of an AST tree by threading
 -- a term through a sequence of functions which augment
 -- the AST.
@@ -107,7 +107,7 @@ composeTerms :: Parser a -> Parser [a -> a] -> Parser a
 composeTerms = liftM2 (foldl (flip ($)))
 
 pExpr :: Parser Expr
-pExpr = try pAsgn <|> try (composeTerms pExpr' (many (pCall <|> pGet))) 
+pExpr = try pAsgn <|> try (composeTerms pExpr' (many (pCall <|> pGet)))
 
 pExpr' :: Parser Expr
 pExpr' =
@@ -212,7 +212,7 @@ pStmtFor = do
         Nothing -> body
       while = StmtWhile (fromMaybe (ExprLit (LitBool True)) mCond) whileBody
   return $ StmtBlock (catMaybes [mInit, Just while])
-  
+
 pStmtIf :: Parser Stmt
 pStmtIf = do
   void $ symbol "if"
@@ -224,7 +224,7 @@ pStmtIf = do
   return $ StmtIf cond trueBody falseBody
 
 pFuncParams :: Parser [Var]
-pFuncParams = 
+pFuncParams =
   sepBy pVar (symbol ",")
 
 pStmtFuncDecl :: Parser Stmt
