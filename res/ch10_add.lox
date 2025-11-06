@@ -8,10 +8,8 @@ var a = "hi";
         print a + b + c;
         print x;
     }
+
+    add(1, 2, 3);
 }
 
 var z = "end";
-
-{ 
-    add(1, 2, 3);
-}
