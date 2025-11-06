@@ -9,7 +9,7 @@ import Bli.Ast (
   Stmt (..),
   UnOp (..),
   Var (..),
-  stringify, UnExpr (UnExpr), BinExpr (BinExpr), GlobalEnv (..), LocalEnv (..), Func (..), Obj (Obj), Class (Class),
+  stringify, UnExpr (UnExpr), BinExpr (BinExpr), GlobalEnv (..), LocalEnv (..), Func (..), Obj (Obj), Class (..),
  )
 
 import Prelude hiding (putStr, putStrLn)
@@ -21,7 +21,7 @@ import Data.HashMap.Strict qualified as HMap
 import Data.Text.IO (putStr)
 import Control.Monad (when, void, unless)
 import Bli.Error (BliException (ErrorMsg, Goto), mkErrorMsg)
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, fromMaybe)
 import Control.Applicative ((<|>))
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -112,7 +112,7 @@ interpret' startState stmts = do
       (traverse_ execute stmts)
       startState
   case result of
-    Left e -> case e of 
+    Left e -> case e of
       ErrorMsg err -> error $ T.unpack err
       Goto -> error "Unexpected Goto error."
     Right () -> return finalState
@@ -141,7 +141,7 @@ writeOut str = do
     then
       modify
           (\s -> s{output = str : output s})
-    else do 
+    else do
       liftIO $ putStr str
       liftIO $ hFlush stdout
 
@@ -203,10 +203,11 @@ execute stmt = do
       gEnv <- gets globalEnv
       lEnvs <- gets localEnvs
       let klass = Class name methods
-          ctor = 
-            Func 
-              { params = [] 
-              , body = StmtCtor klass []
+          ctorParams = getCtorParams methods
+          ctor =
+            Func
+              { params = ctorParams
+              , body = StmtCtor klass ctorParams
               , funcGEnv = gEnv
               , funcLEnvs = lEnvs
               }
@@ -215,15 +216,19 @@ execute stmt = do
       result' <- eval result
       modify (\s -> s{returnVal = result'})
       throwError Goto
-    StmtCtor klass@(Class _name methods) initParams -> do
+    StmtCtor klass@(Class _name methodDefs) params -> do
       fieldsRef <- liftIO $ newIORef HMap.empty
       let obj = Obj fieldsRef klass
-      
+
+      -- We can lookup the init args here by using the param names
+      lEnvs <- gets localEnvs
+      args <- fromMaybe [] . sequence <$> traverse (lookupLocalVar lEnvs) params
+
       pushEnv
       defVar (Var "this") (ExprObj obj)
 
       -- Define methods for the object
-      traverse_ execute methods
+      traverse_ execute methodDefs
 
       ((LocalEnv m) : _) <- gets localEnvs
       let names = HMap.keys m
@@ -231,6 +236,10 @@ execute stmt = do
       traverse_ (uncurry $ assignObjField (ExprObj obj)) (zip names funcs)
 
       popEnv
+
+      when (Var "init" `elem` names) $ do
+        _ <- eval $ ExprCall (ExprGet (ExprObj obj) (Var "init")) args
+        return ()
 
       execute $ StmtReturn (ExprObj obj)
 
@@ -293,7 +302,7 @@ assignLocalVar envs var val =
   case remEnvs of
     (LocalEnv m) : _xs -> do
       case HMap.lookup var m of
-        Just ref -> do 
+        Just ref -> do
           liftIO $ writeIORef ref val
           return True
         Nothing -> throwError $ ErrorMsg "Unexpected missing variable reference."
@@ -356,22 +365,22 @@ eval expr = do
         ExprFunc f@(Func fParams fBody fGEnv fLEnvs) -> do
           -- Evaluate the arguments
           args' <- traverse eval args
-          
+
           -- Check if too many arguments provided
           when (length args' > length fParams)
             (throwError . ErrorMsg $ "Too many arguments provided.")
-          
+
           -- Check if too few arguments are provided
           if length args' < length fParams then
             -- Return a new ExprFunc with fewer parameters and appropriate
             -- environment for previously provided arguments
             return $ createPartial f args'
-          
+
           -- All arguments were provided
           else do
             -- Wrap arguments inside `IORef`s to place them in an environment
             argsRefs <- traverse (liftIO . newIORef) args'
-           
+
             -- Create an environment to link the formal parameters with
             -- function call arguments
             let callEnv = LocalEnv $ HMap.fromList $ zip fParams argsRefs
@@ -391,7 +400,7 @@ eval expr = do
               )
 
             -- Execute statement block associated with function
-            catchError (execute fBody) 
+            catchError (execute fBody)
               (\e -> case e of
                 Goto -> return ()
                 -- Rethrow the error if it isn't related to control flow
@@ -427,7 +436,7 @@ eval expr = do
 -- an `ExprFunc` wrapper that calls the original function using
 -- the partially-applied arguments.
 createPartial :: Func -> [Expr] -> Expr
-createPartial f@(Func fParams _fBody fGEnv fLEnvs) args = 
+createPartial f@(Func fParams _fBody fGEnv fLEnvs) args =
   ExprFunc (Func pParams pBody fGEnv fLEnvs)
     where
       pParams :: [Var]
@@ -488,7 +497,7 @@ evalBinary op x y = do
           xNum <- getNum x'
           yNum <- getNum y'
           return $ ExprLit (LitNum $ xNum + yNum)
-        ExprLit (LitStr _) -> do  
+        ExprLit (LitStr _) -> do
           xStr <- getStr x'
           yStr <- getStr y'
           return $ ExprLit (LitStr $ xStr <> yStr)
@@ -559,3 +568,15 @@ isTruthy :: Expr -> Bool
 isTruthy (ExprLit LitNil) = False
 isTruthy (ExprLit (LitBool x)) = x
 isTruthy _ = True
+
+-- | Get the params for a constructor. If no init method
+-- is defined, then there are no parameters. If an init method
+-- is defined, then use its parameters.
+getCtorParams :: [Stmt] -> [Var]
+getCtorParams = fromMaybe [] . getInitParams
+  where
+    getInitParams :: [Stmt] -> Maybe [Var]
+    getInitParams (x : xs) = case x of
+      StmtFuncDecl (Var "init") params _ -> Just params
+      _ -> getInitParams xs
+    getInitParams [] = Nothing
