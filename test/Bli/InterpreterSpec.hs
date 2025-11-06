@@ -70,7 +70,7 @@ spec = do
 
   describe "print statements" $ do
     it "should print values" $ do
-      shouldOutput "print \"hello\";" ["\"hello\"\n"]
+      shouldOutput "print \"hello\";" ["hello\n"]
 
   describe "variable declaration, assignment, and scope" $ do
     it "should support global variable declaration" $ do
@@ -97,20 +97,20 @@ spec = do
         , "  }"
         , "}"
         ]
-        `shouldOutput` ["30\n", "\"abc\"\n"]
+        `shouldOutput` ["30\n", "abc\n"]
 
     it "should support an environment with global and nested local blocks" $ do
       prog <- T.pack <$> readFile "res/ch8_scope_test.lox"
       prog
-        `shouldOutput` [ "\"inner a\"\n"
-                       , "\"outer b\"\n"
-                       , "\"global c\"\n"
-                       , "\"outer a\"\n"
-                       , "\"outer b\"\n"
-                       , "\"global c\"\n"
-                       , "\"global a\"\n"
-                       , "\"global b\"\n"
-                       , "\"global c\"\n"
+        `shouldOutput` [ "inner a\n"
+                       , "outer b\n"
+                       , "global c\n"
+                       , "outer a\n"
+                       , "outer b\n"
+                       , "global c\n"
+                       , "global a\n"
+                       , "global b\n"
+                       , "global c\n"
                        ]
 
     it "should error when variable is not in scope" $ do
@@ -137,8 +137,9 @@ spec = do
     it "should conditionally execute the true- and false-body of an if-statement" $ do
       prog <- T.pack <$> readFile "res/control_flow.lox"
       prog
-        `shouldOutput` [ "\"a > b\"\n"
-                       , "\"a > b\"\n"
+        `shouldOutput` [ "a > b\n"
+                       , "a > b\n"
+                       , "a > b\n"
                        ]
 
     it "should support iteration with a while-loop" $ do
@@ -154,7 +155,7 @@ spec = do
                        , "7\n"
                        , "8\n"
                        , "9\n"
-                       , "\"after loop\"\n"
+                       , "after loop\n"
                        , "10\n"
                        ]
 
@@ -183,7 +184,9 @@ spec = do
   describe "functions and closures" $ do
     it "should support defining and calling functions" $ do
       prog <- T.pack <$> readFile "res/ch10_add.lox"
-      prog `shouldOutput` ["6\n"]
+      prog `shouldOutput` [ "6\n"
+                          , "100\n"
+                          ]
 
     it "should support partial application" $ do
       prog <- T.pack <$> readFile "res/ch10_partial.lox"
@@ -213,6 +216,6 @@ spec = do
     it "should not pickup new variable definitions" $ do
       prog <- T.pack <$> readFile "res/ch11_resolve_test.lox"
       prog
-        `shouldOutput` [ "\"global\"\n"
-                       , "\"global\"\n"
+        `shouldOutput` [ "global\n"
+                       , "global\n"
                        ]
