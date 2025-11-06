@@ -171,7 +171,7 @@ stringify (ExprLit (LitNum x)) =
       str
 stringify (ExprLit (LitBool x)) =
   if x then "true" else "false"
-stringify (ExprLit (LitStr x)) = "\"" <> x <> "\""
+stringify (ExprLit (LitStr x)) = x
 stringify (ExprGroup x) = "(" <> stringify x <> ")"
 stringify (ExprUn (UnExpr op x)) = unOpSym op <> stringify x
 stringify (ExprBin (BinExpr op x y)) = stringify x <> " " <> binOpSym op <> " " <> stringify y
