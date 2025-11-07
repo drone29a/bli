@@ -39,6 +39,7 @@ data Func = Func
 
 data Class = Class
   { name :: Var
+  , super :: Maybe Class
   , methods :: [Stmt]
   } deriving (Eq, Show, Generic)
 
@@ -52,6 +53,7 @@ data Literal
   | LitStr Text
   | LitBool Bool
   | LitNil
+  | LitSuper Var
   deriving (Eq, Show, Generic)
 instance Hashable Literal
 
@@ -106,6 +108,7 @@ data Expr
   | ExprAsgn (Asgn LVal Expr)
   | ExprCall Expr [Expr]
   | ExprFunc Func
+  | ExprClass Class Func
   | ExprObj Obj
   | ExprGet Expr Var
   | ExprSet Expr Var
@@ -139,7 +142,7 @@ data Stmt
   | StmtIf Expr Stmt (Maybe Stmt)
   | StmtWhile Expr Stmt
   | StmtFuncDecl Var [Var] Stmt
-  | StmtClassDecl Var [Stmt]
+  | StmtClassDecl Var (Maybe Var) [Stmt]
   | StmtReturn Expr
   | StmtCtor Class [Var]
   deriving
@@ -172,6 +175,7 @@ stringify (ExprLit (LitNum x)) =
 stringify (ExprLit (LitBool x)) =
   if x then "true" else "false"
 stringify (ExprLit (LitStr x)) = x
+stringify (ExprLit (LitSuper _)) = "super"
 stringify (ExprGroup x) = "(" <> stringify x <> ")"
 stringify (ExprUn (UnExpr op x)) = unOpSym op <> stringify x
 stringify (ExprBin (BinExpr op x y)) = stringify x <> " " <> binOpSym op <> " " <> stringify y
@@ -180,6 +184,7 @@ stringify (ExprAsgn (Asgn (LValVar (Var name)) expr)) = name <> " = " <> stringi
 stringify (ExprCall tgt args) = 
   stringify tgt <> "(" <> intercalate "," (fmap stringify args) <> ")"
 stringify (ExprFunc _) = "<fn>"
+stringify (ExprClass (Class (Var name) _ _) _) = "<class " <> name <> ">"
 stringify (ExprObj _) = "<obj>"
 stringify (ExprGet _ _) = "<get>"
 stringify (ExprSet _ _) = "<set>"

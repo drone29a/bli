@@ -42,6 +42,13 @@ pNil :: Parser Literal
 pNil =
   LitNil <$ symbol "nil" <?> "nil"
 
+pSuper :: Parser Literal
+pSuper = do
+  void $ symbol "super"
+  void $ symbol "."
+  var <- pVar
+  return $ LitSuper var
+
 pIdent :: Parser Ident
 pIdent =
   Ident . T.pack <$> lexeme ((:) <$> (letterChar <|> char '_') <*> many (alphaNumChar <|> char '_') <?> "identifier")
@@ -54,7 +61,7 @@ pVar = do
 pOperand :: Parser Expr
 pOperand = try $ do
   choice
-    [ ExprLit <$> try (pNum <|> pStr <|> pBool <|> pNil)
+    [ ExprLit <$> try (pNum <|> pStr <|> pBool <|> pNil <|> pSuper)
     , ExprGroup <$> try (between (symbol "(") (symbol ")") pExpr)
     , ExprVar <$> try pVar
     ]
@@ -250,8 +257,9 @@ pStmtClassDecl :: Parser Stmt
 pStmtClassDecl = do
   void $ symbol "class"
   name <- pVar
+  mSuper <- try . optional $ symbol "<" *> pVar
   methods <- try (between (symbol "{") (symbol "}") $ many pStmtMethodDecl)
-  return $ StmtClassDecl name methods
+  return $ StmtClassDecl name mSuper methods
 
 pStmtReturn :: Parser Stmt
 pStmtReturn = do

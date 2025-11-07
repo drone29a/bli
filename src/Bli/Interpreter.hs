@@ -21,7 +21,7 @@ import Data.HashMap.Strict qualified as HMap
 import Data.Text.IO (putStr)
 import Control.Monad (when, void, unless)
 import Bli.Error (BliException (ErrorMsg, Goto), mkErrorMsg)
-import Data.Maybe (mapMaybe, fromMaybe)
+import Data.Maybe (mapMaybe, fromMaybe, isJust, isNothing)
 import Control.Applicative ((<|>))
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -199,10 +199,20 @@ execute stmt = do
               }
       -- Add reference to function in current environment
       defVar name (ExprFunc func)
-    StmtClassDecl name methods -> do
+    StmtClassDecl name superName methods -> do
       gEnv <- gets globalEnv
       lEnvs <- gets localEnvs
-      let klass = Class name methods
+      superVar <- case superName of
+        Just k -> lookupVar gEnv lEnvs k
+        Nothing -> pure Nothing
+      let super = case superVar of
+                    Just (ExprClass klass _) -> Just klass
+                    _ -> Nothing
+
+      when (isJust superVar && isNothing super) 
+        (throwError $ ErrorMsg "Expected a class.")
+
+      let klass = Class name super methods
           ctorParams = getCtorParams methods
           ctor =
             Func
@@ -211,12 +221,12 @@ execute stmt = do
               , funcGEnv = gEnv
               , funcLEnvs = lEnvs
               }
-      defVar name (ExprFunc ctor)
+      defVar name (ExprClass klass ctor)
     StmtReturn result -> do
       result' <- eval result
       modify (\s -> s{returnVal = result'})
       throwError Goto
-    StmtCtor klass@(Class _name methodDefs) params -> do
+    StmtCtor klass@(Class _name _super methodDefs) params -> do
       fieldsRef <- liftIO $ newIORef HMap.empty
       let obj = Obj fieldsRef klass
 
@@ -226,6 +236,16 @@ execute stmt = do
 
       pushEnv
       defVar (Var "this") (ExprObj obj)
+
+      -- We can add all the method defs for the superclass and the super-superclass, etc in 
+      -- a special "super" environment that is associated with an object.
+      -- We can then add support for the super expression so that it uses the current object's
+      -- "super" environment to find the correct method to call. We can add a "super" var in just like "this" that
+      -- refers to a special ExprSuper for handling this case. How does "super" get access to the object? Associate it
+      -- with the ExprSuper here...
+      -- Actually, we can bind Var "super" to an Obj with the parent class? But we need to be able to walk up to the next super
+      -- if there is no match. Does that happen in ExprGet? Yes! So the super object just refers to the parent class, 
+      -- ExprGet handles walking up.
 
       -- Define methods for the object
       traverse_ execute methodDefs
@@ -357,11 +377,14 @@ eval expr = do
       assignObjField objExpr' field val
       return val
     ExprFunc _fn -> return expr
+    ExprClass _klass _ctor -> return expr
     ExprCall target args -> do
       -- Evaluate the call target
       target' <- eval target
       -- Target must evaluate to an `ExprFunc`
       case target' of
+        ExprClass _klass ctor ->
+          eval (ExprCall (ExprFunc ctor) args)
         ExprFunc f@(Func fParams fBody fGEnv fLEnvs) -> do
           -- Evaluate the arguments
           args' <- traverse eval args
@@ -423,10 +446,11 @@ eval expr = do
     ExprGet src field -> do
       result <- eval src
       case result of
-        ExprObj (Obj fieldsRef _klass) -> do
+        ExprObj (Obj fieldsRef klass) -> do
           fields <- liftIO $ readIORef fieldsRef
           case HMap.lookup field fields of
             Just val -> return val
+            -- TODO: Here we want to walk up the klass hierarchy
             Nothing -> throwError . ErrorMsg $ "No field found for: " <> T.pack (show field) <> "."
         _ -> throwError . ErrorMsg $ "Expected an object, found: " <> stringify result <> "."
     ExprSet _ _ -> return expr
