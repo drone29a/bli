@@ -226,9 +226,10 @@ execute stmt = do
       result' <- eval result
       modify (\s -> s{returnVal = result'})
       throwError Goto
-    StmtCtor klass@(Class _name _super methodDefs) params -> do
+    StmtCtor klass@(Class _name super methodDefs) params -> do
       fieldsRef <- liftIO $ newIORef HMap.empty
-      let obj = Obj fieldsRef klass
+      superMethodsRef <- liftIO $ newIORef HMap.empty
+      let obj = Obj fieldsRef superMethodsRef klass
 
       -- We can lookup the init args here by using the param names
       lEnvs <- gets localEnvs
@@ -243,16 +244,31 @@ execute stmt = do
       -- "super" environment to find the correct method to call. We can add a "super" var in just like "this" that
       -- refers to a special ExprSuper for handling this case. How does "super" get access to the object? Associate it
       -- with the ExprSuper here...
-      -- Actually, we can bind Var "super" to an Obj with the parent class? But we need to be able to walk up to the next super
-      -- if there is no match. Does that happen in ExprGet? Yes! So the super object just refers to the parent class, 
+      -- Actually, we can make "super.method" eval to method definitions from parent class up the hierarchy. 
+      -- Does that happen in ExprGet? Yes! So the super object just refers to the parent class, 
       -- ExprGet handles walking up.
+
+      -- TODO: Need to also do this for super classes, it should be done
+      -- in order from top parent class down to this class
+
+      -- Build up list of collection of super method definitions
+      let superMethodDefs = collectMethodDefs super
+
+      -- Define methods for all super classes of objects
+      -- We want the definition for the closest subtype to be found
+      traverse_ execute superMethodDefs
+      
+      ((LocalEnv m) : _) <- gets localEnvs
+      let superMethodNames = HMap.keys m
+      superMethods <- traverse (liftIO . readIORef) (HMap.elems m)
+      traverse_ (uncurry $ assignSuperMethod (ExprObj obj)) (zip superMethodNames superMethods)
 
       -- Define methods for the object
       traverse_ execute methodDefs
 
-      ((LocalEnv m) : _) <- gets localEnvs
-      let names = HMap.keys m
-      funcs <- traverse (liftIO . readIORef) (HMap.elems m)
+      ((LocalEnv m') : _) <- gets localEnvs
+      let names = HMap.keys m'
+      funcs <- traverse (liftIO . readIORef) (HMap.elems m')
       traverse_ (uncurry $ assignObjField (ExprObj obj)) (zip names funcs)
 
       popEnv
@@ -262,6 +278,13 @@ execute stmt = do
         return ()
 
       execute $ StmtReturn (ExprObj obj)
+
+-- | Collect all method definitions from top to bottom of a string of supertype-subtype classes.
+-- If a subclass overloads a method in a superclass, the most recent subclass's definition will be used.
+collectMethodDefs :: Maybe Class -> [Stmt]
+collectMethodDefs (Just (Class _name super methodDefs)) = 
+  collectMethodDefs super ++ methodDefs
+collectMethodDefs Nothing = []
 
 -- | Push a local environment onto the stack of local environments.
 pushEnv :: Interpreter ()
@@ -341,15 +364,32 @@ assignGlobalVar env var val =
 assignObjField :: Expr -> Var -> Expr -> Interpreter ()
 assignObjField objExpr field val = do
   case objExpr of
-    ExprObj (Obj fieldsRef _klass) -> do
+    ExprObj (Obj fieldsRef _superMethods _klass) -> do
       fields <- liftIO $ readIORef fieldsRef
       liftIO $ writeIORef fieldsRef (HMap.insert field val fields)
+    _ -> throwError $ ErrorMsg ("Expected object for assignment, found: " <> stringify objExpr <> ".")
+
+assignSuperMethod :: Expr -> Var -> Expr -> Interpreter ()
+assignSuperMethod objExpr methodVar val = do
+  case objExpr of
+    ExprObj (Obj _fieldsRef superMethodsRef _klass) -> do
+      superMethods <- liftIO $ readIORef superMethodsRef
+      liftIO $ writeIORef superMethodsRef (HMap.insert methodVar val superMethods)
     _ -> throwError $ ErrorMsg ("Expected object for assignment, found: " <> stringify objExpr <> ".")
 
 -- | Recursively evaluate an expression.
 eval :: Expr -> Interpreter Expr
 eval expr = do
   case expr of
+    ExprLit (LitSuper methodVar) -> do
+      this <- eval (ExprVar (Var "this"))
+      case this of
+        ExprObj (Obj _fieldsRef superMethodsRef _klass) -> do
+          superMethods <- liftIO $ readIORef superMethodsRef
+          case HMap.lookup methodVar superMethods of
+            Just val -> return val
+            Nothing -> throwError . ErrorMsg $ "No super method found for: " <> T.pack (show methodVar) <> "."
+        _ -> throwError . ErrorMsg $ "Expected an object, found: " <> stringify this <> "." 
     ExprLit _lit -> return expr
     ExprUn (UnExpr op x) -> evalUnary op x
     ExprBin (BinExpr op x y) -> evalBinary op x y
@@ -446,11 +486,10 @@ eval expr = do
     ExprGet src field -> do
       result <- eval src
       case result of
-        ExprObj (Obj fieldsRef klass) -> do
+        ExprObj (Obj fieldsRef _superMethods _klass) -> do
           fields <- liftIO $ readIORef fieldsRef
           case HMap.lookup field fields of
             Just val -> return val
-            -- TODO: Here we want to walk up the klass hierarchy
             Nothing -> throwError . ErrorMsg $ "No field found for: " <> T.pack (show field) <> "."
         _ -> throwError . ErrorMsg $ "Expected an object, found: " <> stringify result <> "."
     ExprSet _ _ -> return expr

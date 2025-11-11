@@ -45,6 +45,7 @@ data Class = Class
 
 data Obj = Obj
   { fields :: IORef (HashMap Var Expr)
+  , superMethods :: IORef (HashMap Var Expr)
   , klass :: Class
   } deriving (Eq, Show, Generic)
 
