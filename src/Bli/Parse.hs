@@ -114,12 +114,16 @@ composeTerms :: Parser a -> Parser [a -> a] -> Parser a
 composeTerms = liftM2 (foldl (flip ($)))
 
 pExpr :: Parser Expr
-pExpr = try pAsgn <|> try (composeTerms pExpr' (many (pCall <|> pGet)))
+pExpr = try pAsgn <|> pExpr'
+
+pPostfix :: Parser Expr
+pPostfix = 
+  composeTerms pOperand (many (pCall <|> pGet))
 
 pExpr' :: Parser Expr
 pExpr' =
   makeExprParser
-    pOperand
+    pPostfix
     [
       [ prefix "-" (ExprUn . UnExpr UnNeg)
       , prefix "!" (ExprUn . UnExpr UnNot)
@@ -269,7 +273,7 @@ pStmtReturn = do
   return $ StmtReturn val
 
 pProg :: Parser [Stmt]
-pProg = many pStmt
+pProg = between spaceConsumer eof (many pStmt)
 
 spaceConsumer :: Parser ()
 spaceConsumer =
