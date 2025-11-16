@@ -1,0 +1,23 @@
+var greeting = "hi";
+
+class Message {
+  init(name) {
+    this.name = name;
+  }
+
+  show() {
+    return greeting + ", " + this.name;
+  }
+}
+
+var ma = Message("alice");
+print ma.show();
+
+greeting = "hello";
+print ma.show();
+
+{
+  var greeting = "hey";
+  var mb = Message("bob");
+  print mb.show();
+}

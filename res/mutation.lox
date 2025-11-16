@@ -1,0 +1,21 @@
+var x = 10;
+
+fun free() {
+    print x;
+}
+
+x = 20;
+
+free();
+
+{
+    var y = 100;
+
+    fun a() {
+        print y;
+    }
+
+    y = 200;
+
+    a();
+}

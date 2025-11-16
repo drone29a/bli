@@ -1,0 +1,11 @@
+class Repeater {
+    init(x) {
+        this.x = x;
+    }
+
+    say() {
+        print this.x;
+    }
+}
+
+print "this is fine";
