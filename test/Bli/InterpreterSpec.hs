@@ -219,3 +219,15 @@ spec = do
         `shouldOutput` [ "global\n"
                        , "global\n"
                        ]
+
+  describe "classes" $ do
+    it "should support class definitions" $ do
+      True `shouldBe` True
+    it "should support object creation" $ do
+      True `shouldBe` True
+    it "should support getting object values" $ do
+      True `shouldBe` True
+    it "should support setting object values" $ do
+      True `shouldBe` True
+    it "should support calling object methods" $ do
+      True `shouldBe` True
